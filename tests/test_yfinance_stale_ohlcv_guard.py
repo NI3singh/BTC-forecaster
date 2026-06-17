@@ -17,7 +17,10 @@ import tradingagents.dataflows.y_finance as y_finance
 import tradingagents.default_config as default_config
 from tradingagents.dataflows import interface
 from tradingagents.dataflows.config import set_config
-from tradingagents.dataflows.stockstats_utils import _assert_ohlcv_not_stale
+from tradingagents.dataflows.stockstats_utils import (
+    _assert_ohlcv_not_stale,
+    _intraday_cache_is_stale,
+)
 from tradingagents.dataflows.symbol_utils import NoMarketDataError
 
 
@@ -107,6 +110,60 @@ class StaleGuardRoutingTests(unittest.TestCase):
             )
         self.assertIn("NO_DATA_AVAILABLE", out)
         self.assertIn("stale", out)  # the typed detail is surfaced to the agent
+
+
+def _intraday_frame(*timestamps):
+    n = len(timestamps)
+    return pd.DataFrame(
+        {
+            "Date": [pd.Timestamp(t) for t in timestamps],
+            "Open": [1.0] * n, "High": [1.0] * n, "Low": [1.0] * n,
+            "Close": [1.0] * n, "Volume": [1] * n,
+        }
+    )
+
+
+@pytest.mark.unit
+class IntradayCacheFreshnessTests(unittest.TestCase):
+    """An intraday cache is keyed only by calendar date, so a frame written
+    earlier the same day must be refetched once newer bars have closed —
+    otherwise the forecast track record can never see the realized price.
+    """
+
+    def test_live_same_day_stale_cache_is_refetched(self):
+        # Live path: a date-only curr_date tracks the wall clock. A cache whose
+        # latest bar is hours behind the current bar is stale.
+        now = pd.Timestamp.utcnow().tz_localize(None)
+        cached = _intraday_frame(now.floor("h") - pd.Timedelta(hours=3))
+        self.assertTrue(_intraday_cache_is_stale(cached, "1h", now.normalize()))
+
+    def test_cache_behind_cutoff_is_stale(self):
+        # An explicit timestamp (backtest) is honored as-is; a cache ending before
+        # the floored cutoff is stale.
+        cached = _intraday_frame("2026-06-17 06:00:00")
+        self.assertTrue(
+            _intraday_cache_is_stale(cached, "1h", pd.Timestamp("2026-06-17 09:54:00"))
+        )
+
+    def test_cache_at_cutoff_is_fresh(self):
+        cached = _intraday_frame("2026-06-17 09:00:00")  # == floor(09:54)
+        self.assertFalse(
+            _intraday_cache_is_stale(cached, "1h", pd.Timestamp("2026-06-17 09:54:00"))
+        )
+
+    def test_unknown_interval_is_treated_as_stale(self):
+        # 4h isn't a yfinance bar size we floor on — don't trust a same-day cache.
+        cached = _intraday_frame("2026-06-17 09:00:00")
+        self.assertTrue(
+            _intraday_cache_is_stale(cached, "4h", pd.Timestamp("2026-06-17 09:54:00"))
+        )
+
+    def test_missing_or_empty_dates_treated_as_stale(self):
+        cutoff = pd.Timestamp("2026-06-17 09:54:00")
+        self.assertTrue(_intraday_cache_is_stale(pd.DataFrame({"Close": [1.0]}), "1h", cutoff))
+        self.assertTrue(
+            _intraday_cache_is_stale(pd.DataFrame({"Date": [], "Close": []}), "1h", cutoff)
+        )
 
 
 if __name__ == "__main__":

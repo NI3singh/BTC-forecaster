@@ -122,6 +122,44 @@ def _assert_ohlcv_not_stale(
         )
 
 
+# yfinance intraday interval -> a fixed pandas frequency for flooring timestamps.
+# Used to decide when a same-day intraday cache has gone stale because a newer
+# bar has closed since it was written. Daily bars don't churn intraday, so they
+# are exempt from this check.
+_INTERVAL_TO_FREQ = {
+    "1m": "1min", "2m": "2min", "5m": "5min", "15m": "15min",
+    "30m": "30min", "60m": "60min", "90m": "90min", "1h": "1h",
+}
+
+
+def _intraday_cache_is_stale(
+    cached: pd.DataFrame, interval: str, curr_date_dt: pd.Timestamp
+) -> bool:
+    """True when a cached intraday frame predates the latest bar that should exist.
+
+    Intraday caches are keyed by calendar date, so a frame written earlier in the
+    day keeps serving old bars as new ones close — which silently freezes the
+    forecast track record (``score`` can never see the realized price). Compare the
+    cached frontier against the latest bar implied by the effective cutoff (the
+    wall clock for a live ``curr_date``; an explicit backtest timestamp as-is) and
+    report staleness so the caller refetches.
+    """
+    freq = _INTERVAL_TO_FREQ.get(interval)
+    if freq is None or "Date" not in cached.columns:
+        return True  # unknown intraday interval / shape — don't trust the cache
+    dates = pd.to_datetime(cached["Date"], utc=True, errors="coerce").dt.tz_localize(None).dropna()
+    if dates.empty:
+        return True
+    now = pd.Timestamp.utcnow().tz_localize(None)
+    # Mirror the look-ahead cutoff used in load_ohlcv: a date-only (live) curr_date
+    # tracks "now"; an explicit backtest timestamp is honored as-is.
+    if curr_date_dt == curr_date_dt.normalize():
+        cutoff = min(curr_date_dt + pd.Timedelta(hours=23, minutes=59, seconds=59), now)
+    else:
+        cutoff = curr_date_dt
+    return dates.max() < cutoff.floor(freq)
+
+
 def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     """Fetch OHLCV data with caching, filtered to prevent look-ahead bias.
 
@@ -166,7 +204,13 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     if os.path.exists(data_file):
         cached = pd.read_csv(data_file, on_bad_lines="skip", encoding="utf-8")
         if not cached.empty and "Close" in cached.columns:
-            data = cached
+            # An intraday cache written earlier the same day goes stale as new
+            # bars close; refetch instead of serving a frozen frontier (which
+            # would stop the forecast track record from ever resolving).
+            if interval != "1d" and _intraday_cache_is_stale(cached, interval, curr_date_dt):
+                data = None
+            else:
+                data = cached
 
     if data is None:
         downloaded = yf_retry(lambda: yf.download(
