@@ -48,6 +48,9 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
+    # Append-only JSONL log of every 1h/4h forecast + its realized outcome,
+    # used by the forecast track-record / scoring loop (the honesty layer).
+    "forecast_log_path": os.getenv("TRADINGAGENTS_FORECAST_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "forecasts", "track_record.jsonl")),
     # Optional cap on the number of resolved memory log entries. When set,
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.

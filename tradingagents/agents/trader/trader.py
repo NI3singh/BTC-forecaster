@@ -29,21 +29,22 @@ def create_trader(llm):
             {
                 "role": "system",
                 "content": (
-                    "You are a trading agent analyzing market data to make investment decisions. "
-                    "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
-                    "Anchor your reasoning in the analysts' reports and the research plan."
+                    "You are a trader on an intraday price-forecasting desk. Based on the "
+                    "analysts' intraday reports and the research manager's directional verdict, "
+                    "commit to a preliminary directional call (Up, Flat, or Down) for the next "
+                    "1-4 hours, with concise reasoning and the key intraday level that matters. "
+                    "This is a directional forecast, not investment advice or position sizing."
                     + get_language_instruction()
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Based on a comprehensive analysis by a team of analysts, here is an investment "
-                    f"plan tailored for {company_name}. {instrument_context} This plan incorporates "
-                    f"insights from current technical market trends, macroeconomic indicators, and "
-                    f"social media sentiment. Use this plan as a foundation for evaluating your next "
-                    f"trading decision.\n\nProposed Investment Plan: {investment_plan}\n\n"
-                    f"Leverage these insights to make an informed and strategic decision."
+                    f"Here is the research manager's directional verdict for {company_name}. "
+                    f"{instrument_context} It synthesizes the intraday technical, news, and "
+                    f"sentiment analysis. Use it as the basis for your preliminary 1-4 hour "
+                    f"directional call.\n\nResearch Manager's verdict: {investment_plan}\n\n"
+                    f"Commit to Up, Flat, or Down and explain why."
                 ),
             },
         ]

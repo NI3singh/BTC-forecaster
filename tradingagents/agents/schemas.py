@@ -52,39 +52,53 @@ class TraderAction(str, Enum):
     SELL = "Sell"
 
 
+class Direction(str, Enum):
+    """3-tier directional outcome used by the intraday forecasting agents.
+
+    Replaces the investor Buy/Hold/Sell framing for the forecasting pipeline:
+    the question is which way price moves over the next 1-4 hours, not whether
+    to take a position. ``Flat`` means inside the fee/noise band (no clear move).
+    """
+
+    UP = "Up"
+    FLAT = "Flat"
+    DOWN = "Down"
+
+
 # ---------------------------------------------------------------------------
 # Research Manager
 # ---------------------------------------------------------------------------
 
 
 class ResearchPlan(BaseModel):
-    """Structured investment plan produced by the Research Manager.
+    """Structured directional verdict produced by the Research Manager.
 
-    Hand-off to the Trader: the recommendation pins the directional view,
-    the rationale captures which side of the bull/bear debate carried the
-    argument, and the strategic actions translate that into concrete
-    instructions the trader can execute against.
+    Hand-off to the Trader on the intraday forecasting desk: ``bias`` pins the
+    near-term directional view, ``rationale`` captures which side of the
+    bull/bear debate carried the argument, and ``what_to_watch`` flags the
+    concrete intraday levels/signals that would confirm or flip it.
     """
 
-    recommendation: PortfolioRating = Field(
+    bias: Direction = Field(
         description=(
-            "The investment recommendation. Exactly one of Buy / Overweight / "
-            "Hold / Underweight / Sell. Reserve Hold for situations where the "
-            "evidence on both sides is genuinely balanced; otherwise commit to "
-            "the side with the stronger arguments."
+            "The directional bias for the next 1-4 hours. Exactly one of Up / "
+            "Flat / Down. Reserve Flat for when the debate is genuinely balanced "
+            "or price is likely to stay inside the noise band; otherwise commit "
+            "to the side with the stronger arguments."
         ),
     )
     rationale: str = Field(
         description=(
             "Conversational summary of the key points from both sides of the "
-            "debate, ending with which arguments led to the recommendation. "
+            "debate, ending with which arguments drove the directional call. "
             "Speak naturally, as if to a teammate."
         ),
     )
-    strategic_actions: str = Field(
+    what_to_watch: str = Field(
         description=(
-            "Concrete steps for the trader to implement the recommendation, "
-            "including position sizing guidance consistent with the rating."
+            "Concrete intraday levels, signals, or imminent events the trader "
+            "should watch over the next 1-4 hours, including what would flip the "
+            "bias."
         ),
     )
 
@@ -92,11 +106,11 @@ class ResearchPlan(BaseModel):
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
     return "\n".join([
-        f"**Recommendation**: {plan.recommendation.value}",
+        f"**Bias**: {plan.bias.value}",
         "",
         f"**Rationale**: {plan.rationale}",
         "",
-        f"**Strategic Actions**: {plan.strategic_actions}",
+        f"**What to Watch**: {plan.what_to_watch}",
     ])
 
 
@@ -106,58 +120,48 @@ def render_research_plan(plan: ResearchPlan) -> str:
 
 
 class TraderProposal(BaseModel):
-    """Structured transaction proposal produced by the Trader.
+    """Structured preliminary directional call produced by the Trader.
 
-    The trader reads the Research Manager's investment plan and the analyst
-    reports, then turns them into a concrete transaction: what action to
-    take, the reasoning that justifies it, and the practical levels for
-    entry, stop-loss, and sizing.
+    On the intraday forecasting desk the trader reads the Research Manager's
+    directional verdict and the analyst reports, then commits to a preliminary
+    call for the next 1-4 hours: which way, why, and the key intraday level
+    that matters.
     """
 
-    action: TraderAction = Field(
-        description="The transaction direction. Exactly one of Buy / Hold / Sell.",
+    direction: Direction = Field(
+        description="The preliminary directional call for the next 1-4 hours. Exactly one of Up / Flat / Down.",
     )
     reasoning: str = Field(
         description=(
-            "The case for this action, anchored in the analysts' reports and "
-            "the research plan. Two to four sentences."
+            "The case for this call, anchored in the analysts' intraday reports "
+            "and the research plan. Two to four sentences."
         ),
     )
-    entry_price: float | None = Field(
+    key_level: float | None = Field(
         default=None,
-        description="Optional entry price target in the instrument's quote currency.",
-    )
-    stop_loss: float | None = Field(
-        default=None,
-        description="Optional stop-loss price in the instrument's quote currency.",
-    )
-    position_sizing: str | None = Field(
-        default=None,
-        description="Optional sizing guidance, e.g. '5% of portfolio'.",
+        description=(
+            "Optional key intraday price level (support, resistance, or trigger) "
+            "in the instrument's quote currency."
+        ),
     )
 
 
 def render_trader_proposal(proposal: TraderProposal) -> str:
     """Render a TraderProposal to markdown.
 
-    The trailing ``FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**`` line is
-    preserved for backward compatibility with the analyst stop-signal text
-    and any external code that greps for it.
+    The trailing ``FORECAST (next 1-4h): **UP/FLAT/DOWN**`` line is a stable,
+    greppable marker of the desk's preliminary directional call.
     """
     parts = [
-        f"**Action**: {proposal.action.value}",
+        f"**Direction**: {proposal.direction.value}",
         "",
         f"**Reasoning**: {proposal.reasoning}",
     ]
-    if proposal.entry_price is not None:
-        parts.extend(["", f"**Entry Price**: {proposal.entry_price}"])
-    if proposal.stop_loss is not None:
-        parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
-    if proposal.position_sizing:
-        parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
+    if proposal.key_level is not None:
+        parts.extend(["", f"**Key Level**: {proposal.key_level}"])
     parts.extend([
         "",
-        f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
+        f"FORECAST (next 1-4h): **{proposal.direction.value.upper()}**",
     ])
     return "\n".join(parts)
 
@@ -224,6 +228,92 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Forecast (final intraday deliverable)
+# ---------------------------------------------------------------------------
+
+
+class Forecast(BaseModel):
+    """The final intraday price forecast produced by the Portfolio Manager.
+
+    Replaces the investor PortfolioDecision for the forecasting pipeline: a
+    per-horizon (next 1h, next 4h) directional call with an approximate price,
+    an expected range, and a confidence, plus the reasons and the levels that
+    would confirm or invalidate it. The numbers are the desk's best estimate;
+    the Stage-5 track-record loop keeps the confidence honest over time.
+    """
+
+    direction_1h: Direction = Field(description="Direction for the NEXT 1 HOUR: Up / Flat / Down.")
+    expected_price_1h: float = Field(description="Approximate expected price at the end of the next 1 hour, in the quote currency.")
+    range_low_1h: float | None = Field(default=None, description="Low end of the expected price range over the next 1 hour.")
+    range_high_1h: float | None = Field(default=None, description="High end of the expected price range over the next 1 hour.")
+    confidence_1h: int = Field(ge=0, le=100, description="Confidence (0-100) in the next-1-hour direction call.")
+
+    direction_4h: Direction = Field(description="Direction for the NEXT 4 HOURS: Up / Flat / Down.")
+    expected_price_4h: float = Field(description="Approximate expected price at the end of the next 4 hours, in the quote currency.")
+    range_low_4h: float | None = Field(default=None, description="Low end of the expected price range over the next 4 hours.")
+    range_high_4h: float | None = Field(default=None, description="High end of the expected price range over the next 4 hours.")
+    confidence_4h: int = Field(ge=0, le=100, description="Confidence (0-100) in the next-4-hour direction call.")
+
+    reasons: str = Field(
+        description=(
+            "2-4 sentences citing the actual drivers behind the calls: momentum/"
+            "MACD, ATR-implied range, key intraday levels reclaimed or lost, and "
+            "any breaking news/sentiment that shaped the direction or widened the "
+            "range."
+        ),
+    )
+    key_levels: str | None = Field(
+        default=None,
+        description="Key intraday support/resistance levels, e.g. 'support $64,900 - resistance $66,150'.",
+    )
+    invalidation: str | None = Field(
+        default=None,
+        description="What price action would invalidate this forecast, e.g. 'a 1h close below $64,900 flips the 4h view'.",
+    )
+
+
+def _confidence_band(pct: int) -> str:
+    if pct >= 70:
+        return "High"
+    if pct >= 55:
+        return "Medium"
+    return "Low"
+
+
+def _fmt_range(low: float | None, high: float | None) -> str:
+    if low is None or high is None:
+        return "n/a"
+    return f"${low:,.0f} - ${high:,.0f}"
+
+
+def render_forecast(f: Forecast) -> str:
+    """Render a Forecast to the markdown the CLI, reports, and signal parser consume.
+
+    The leading ``Primary signal (next 1h)`` line is a stable, greppable marker
+    the signal processor reads to extract the headline direction.
+    """
+    parts = [
+        f"**Primary signal (next 1h): {f.direction_1h.value}**",
+        "",
+        "| Horizon | Direction | Approx. price | Expected range | Confidence |",
+        "| --- | --- | --- | --- | --- |",
+        f"| Next 1h | {f.direction_1h.value} | ${f.expected_price_1h:,.2f} | "
+        f"{_fmt_range(f.range_low_1h, f.range_high_1h)} | "
+        f"{_confidence_band(f.confidence_1h)} ({f.confidence_1h}%) |",
+        f"| Next 4h | {f.direction_4h.value} | ${f.expected_price_4h:,.2f} | "
+        f"{_fmt_range(f.range_low_4h, f.range_high_4h)} | "
+        f"{_confidence_band(f.confidence_4h)} ({f.confidence_4h}%) |",
+        "",
+        f"**Why:** {f.reasons}",
+    ]
+    if f.key_levels:
+        parts.extend(["", f"**Key levels:** {f.key_levels}"])
+    if f.invalidation:
+        parts.extend(["", f"**What would invalidate this:** {f.invalidation}"])
     return "\n".join(parts)
 
 

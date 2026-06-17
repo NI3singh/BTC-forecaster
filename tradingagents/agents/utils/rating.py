@@ -46,3 +46,36 @@ def parse_rating(text: str, default: str = "Hold") -> str:
                 return clean.capitalize()
 
     return default
+
+
+# Canonical 3-tier directional scale for the intraday forecaster.
+DIRECTIONS_3: tuple[str, ...] = ("Up", "Flat", "Down")
+
+_DIRECTION_SET = {d.lower() for d in DIRECTIONS_3}
+
+# Matches the rendered "Primary signal (next 1h): Up" marker, tolerating the
+# markdown bold and the parenthesis/colon punctuation around the direction word.
+_DIRECTION_LABEL_RE = re.compile(r"1h\b[^A-Za-z]*\**\s*(Up|Flat|Down)\b", re.IGNORECASE)
+
+
+def parse_direction(text: str, default: str = "Flat") -> str:
+    """Heuristically extract the headline (next-1h) direction from a forecast.
+
+    Two-pass strategy mirroring :func:`parse_rating`:
+    1. Look for the rendered "next 1h ... Up/Flat/Down" marker.
+    2. Fall back to the first Up/Flat/Down word found anywhere in the text.
+
+    Returns a Title-cased direction string, or ``default`` if none is found.
+    """
+    for line in text.splitlines():
+        m = _DIRECTION_LABEL_RE.search(line)
+        if m:
+            return m.group(1).capitalize()
+
+    for line in text.splitlines():
+        for word in line.lower().split():
+            clean = word.strip("*:.,()|")
+            if clean in _DIRECTION_SET:
+                return clean.capitalize()
+
+    return default

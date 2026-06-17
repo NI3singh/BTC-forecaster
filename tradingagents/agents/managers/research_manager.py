@@ -22,20 +22,18 @@ def create_research_manager(llm):
 
         investment_debate_state = state["investment_debate_state"]
 
-        prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear, actionable investment plan for the trader.
+        prompt = f"""As the Research Manager and debate facilitator on an intraday price-forecasting desk, critically evaluate this round of the bull/bear debate and deliver a clear directional verdict for the next 1-4 hours that the trader can act on.
 
 {instrument_context}
 
 ---
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction in the bull thesis; recommend taking or growing the position
-- **Overweight**: Constructive view; recommend gradually increasing exposure
-- **Hold**: Balanced view; recommend maintaining the current position
-- **Underweight**: Cautious view; recommend trimming exposure
-- **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
+**Directional bias** (choose exactly one):
+- **Up**: The bull case is stronger; price is more likely to rise over the next 1-4 hours.
+- **Flat**: The evidence is genuinely balanced, or price is likely to stay inside the noise band.
+- **Down**: The bear case is stronger; price is more likely to fall over the next 1-4 hours.
 
-Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced.
+Commit to Up or Down whenever the debate's strongest arguments warrant it; reserve Flat for a genuinely balanced setup. Ground the verdict in the intraday technical, news, and sentiment evidence, and flag the levels that would confirm or flip it.
 
 ---
 

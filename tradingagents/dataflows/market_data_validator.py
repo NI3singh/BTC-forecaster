@@ -15,6 +15,7 @@ from collections.abc import Iterable
 import pandas as pd
 from stockstats import wrap
 
+from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.stockstats_utils import load_ohlcv
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
@@ -39,7 +40,17 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     df = data.copy()
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date"])
-    df = df[df["Date"] <= pd.to_datetime(curr_date)].sort_values("Date")
+
+    # Defensive look-ahead cutoff. ``load_ohlcv`` already trims to the as_of bar,
+    # but re-apply it so this verification path never trusts its input. For an
+    # intraday interval a bare ``curr_date`` parses to midnight, which would drop
+    # the current day's hourly bars — extend it to end-of-day so the latest
+    # hourly bar (the real "current price") is kept.
+    interval = get_config().get("data_interval", "1d")
+    cutoff = pd.to_datetime(curr_date)
+    if interval != "1d" and cutoff == cutoff.normalize():
+        cutoff = cutoff + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    df = df[df["Date"] <= cutoff].sort_values("Date")
     if df.empty:
         raise ValueError(f"No OHLCV rows on or before {curr_date} for {symbol}.")
     return df
@@ -49,6 +60,9 @@ def _fmt(value) -> str:
     if value is None or pd.isna(value):
         return "N/A"
     if isinstance(value, pd.Timestamp):
+        # Include the hour for intraday bars; keep date-only for daily bars.
+        if value.hour or value.minute:
+            return value.strftime("%Y-%m-%d %H:%M")
         return value.strftime("%Y-%m-%d")
     if isinstance(value, bool):
         return str(value)
