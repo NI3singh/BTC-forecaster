@@ -84,13 +84,13 @@ class TestRenderResearchPlan:
 @pytest.mark.unit
 class TestRenderForecast:
     def _forecast(self, **kw):
-        base = dict(
-            direction_1h=Direction.UP, expected_price_1h=65950.0,
-            range_low_1h=65700.0, range_high_1h=66150.0, confidence_1h=62,
-            direction_4h=Direction.DOWN, expected_price_4h=65400.0,
-            range_low_4h=64900.0, range_high_4h=65900.0, confidence_4h=48,
-            reasons="MACD turned up off oversold; ATR ~250/hr.",
-        )
+        base = {
+            "direction_1h": Direction.UP, "expected_price_1h": 65950.0,
+            "range_low_1h": 65700.0, "range_high_1h": 66150.0, "confidence_1h": 62,
+            "direction_4h": Direction.DOWN, "expected_price_4h": 65400.0,
+            "range_low_4h": 64900.0, "range_high_4h": 65900.0, "confidence_4h": 48,
+            "reasons": "MACD turned up off oversold; ATR ~250/hr.",
+        }
         base.update(kw)
         return Forecast(**base)
 
