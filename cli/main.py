@@ -1291,6 +1291,18 @@ def run_analysis(checkpoint: bool = False):
     console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")
     console.print(f"[dim]{analyst_wall_time_tracker.format_summary()}[/dim]")
 
+    # Best-effort: log this forecast to the rolling track record so accuracy can
+    # be scored once the 1h/4h horizons elapse. Never blocks or breaks the run.
+    try:
+        from tradingagents.forecasting.track_record import record_forecast
+        if record_forecast(
+            config, selections["ticker"], selections["analysis_date"],
+            final_state.get("final_trade_decision", ""),
+        ):
+            console.print("[dim]✓ Forecast logged to the track record (run `score` later to grade it).[/dim]")
+    except Exception:
+        pass
+
     # Prompt to save report
     save_choice = typer.prompt("Save report?", default="Y").strip().upper()
     if save_choice in ("Y", "YES", ""):
@@ -1332,6 +1344,13 @@ def analyze(
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     run_analysis(checkpoint=checkpoint)
+
+
+@app.command()
+def score():
+    """Resolve elapsed 1h/4h forecasts and print the rolling accuracy track record."""
+    from tradingagents.forecasting.track_record import score_and_summarize
+    console.print(Markdown(score_and_summarize(DEFAULT_CONFIG)))
 
 
 if __name__ == "__main__":
