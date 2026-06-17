@@ -5,6 +5,7 @@ import pandas as pd
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
+from .config import get_config
 from .stockstats_utils import (
     StockstatsUtils,
     _assert_ohlcv_not_stale,
@@ -21,8 +22,17 @@ def get_YFin_data_online(
     end_date: Annotated[str, "End date in yyyy-mm-dd format"],
 ):
 
-    datetime.strptime(start_date, "%Y-%m-%d")
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    interval = get_config().get("data_interval", "1d")
+    # yfinance caps intraday history (~730 days for 1h bars). Clamp the start so
+    # the request doesn't error; an intraday forecaster only needs recent bars.
+    if interval != "1d":
+        min_start = end_dt - relativedelta(days=720)
+        if start_dt < min_start:
+            start_dt = min_start
+            start_date = start_dt.strftime("%Y-%m-%d")
 
     # Resolve broker/forex symbols to Yahoo's convention (XAUUSD+ -> GC=F).
     canonical = normalize_symbol(symbol)
@@ -32,7 +42,7 @@ def get_YFin_data_online(
     # end_date row (and the current day when end_date is today). Request one day
     # past end_date so the requested range is actually inclusive (#986/#987).
     end_inclusive = (end_dt + relativedelta(days=1)).strftime("%Y-%m-%d")
-    data = yf_retry(lambda: ticker.history(start=start_date, end=end_inclusive))
+    data = yf_retry(lambda: ticker.history(start=start_date, end=end_inclusive, interval=interval))
 
     # Empty result means the symbol is unknown/delisted. Raise a typed error
     # instead of returning prose: the routing layer turns it into a single
@@ -63,11 +73,56 @@ def get_YFin_data_online(
     # Add header information; note the resolved symbol when it differs so the
     # agent (and user) can see which instrument was actually priced.
     label = canonical if canonical == symbol.upper() else f"{canonical} (from {symbol})"
-    header = f"# Stock data for {label} from {start_date} to {end_date}\n"
+    header = f"# Stock data for {label} from {start_date} to {end_date} ({interval} bars)\n"
     header += f"# Total records: {len(data)}\n"
     header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
     return header + csv_string
+
+def _intraday_indicator_window(
+    symbol: str,
+    indicator: str,
+    curr_date: str,
+    look_back_periods: int,
+    best_ind_params: dict,
+) -> str:
+    """Indicator window for intraday bars.
+
+    Unlike the daily path (which walks calendar days and keys by date string,
+    collapsing multiple intraday bars into one), this keys by full bar
+    timestamp and returns the most recent ``look_back_periods`` BARS at/before
+    the as_of cutoff. ``load_ohlcv`` already trims to that cutoff, so no
+    additional look-ahead filtering is needed here.
+    """
+    from stockstats import wrap
+
+    data = load_ohlcv(symbol, curr_date)
+    if data.empty:
+        return f"## {indicator}: no intraday data at or before {curr_date}"
+
+    df = wrap(data)
+    df[indicator]  # trigger stockstats to calculate the indicator
+
+    rows = []
+    for _, row in df.iterrows():
+        ts = pd.to_datetime(row["Date"])
+        value = row[indicator]
+        rows.append(
+            (ts.strftime("%Y-%m-%d %H:%M"), "N/A" if pd.isna(value) else str(value))
+        )
+
+    n = look_back_periods if look_back_periods and look_back_periods > 0 else 30
+    window = rows[-n:]
+    ind_string = "".join(f"{ts}: {value}\n" for ts, value in window)
+
+    return (
+        f"## {indicator} values for the last {len(window)} bars up to {curr_date} "
+        f"(intraday):\n\n"
+        + ind_string
+        + "\n\n"
+        + best_ind_params.get(indicator, "No description available.")
+    )
+
 
 def get_stock_stats_indicators_window(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -154,6 +209,12 @@ def get_stock_stats_indicators_window(
     if indicator not in best_ind_params:
         raise ValueError(
             f"Indicator {indicator} is not supported. Please choose from: {list(best_ind_params.keys())}"
+        )
+
+    interval = get_config().get("data_interval", "1d")
+    if interval != "1d":
+        return _intraday_indicator_window(
+            symbol, indicator, curr_date, look_back_days, best_ind_params
         )
 
     end_date = curr_date

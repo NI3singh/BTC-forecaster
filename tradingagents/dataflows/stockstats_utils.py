@@ -136,11 +136,17 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     safe_symbol = safe_ticker_component(canonical)
 
     config = get_config()
+    interval = config.get("data_interval", "1d")
     curr_date_dt = pd.to_datetime(curr_date)
 
-    # Cache uses a fixed window (5y to today) so one file per symbol.
+    # Cache window: 5y for daily. yfinance caps intraday history (~730 days for
+    # 1h bars), so an intraday interval uses a 720-day window. The interval is
+    # part of the cache filename so 1h and 1d frames never collide.
     today_date = pd.Timestamp.today()
-    start_date = today_date - pd.DateOffset(years=5)
+    if interval == "1d":
+        start_date = today_date - pd.DateOffset(years=5)
+    else:
+        start_date = today_date - pd.Timedelta(days=720)
     start_str = start_date.strftime("%Y-%m-%d")
     # yfinance ``end`` is EXCLUSIVE; request tomorrow so today's row is included
     # when curr_date is the current day (#986). Look-ahead is still prevented by
@@ -150,7 +156,7 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     os.makedirs(config["data_cache_dir"], exist_ok=True)
     data_file = os.path.join(
         config["data_cache_dir"],
-        f"{safe_symbol}-YFin-data-{start_str}-{end_str}.csv",
+        f"{safe_symbol}-YFin-{interval}-data-{start_str}-{end_str}.csv",
     )
 
     # A cached file may be empty if a prior fetch failed (unknown symbol,
@@ -167,6 +173,7 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
             canonical,
             start=start_str,
             end=end_str,
+            interval=interval,
             multi_level_index=False,
             progress=False,
             auto_adjust=True,
@@ -182,8 +189,21 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
 
     data = _clean_dataframe(data)
 
-    # Filter to curr_date to prevent look-ahead bias in backtesting
-    data = data[data["Date"] <= curr_date_dt]
+    # Normalize timestamps to tz-naive UTC so intraday (tz-aware) and daily
+    # (naive) frames both compare cleanly against the look-ahead cutoff below.
+    data["Date"] = pd.to_datetime(data["Date"], utc=True, errors="coerce").dt.tz_localize(None)
+    data = data.dropna(subset=["Date"])
+
+    # Filter to curr_date to prevent look-ahead bias in backtesting. Daily bars
+    # cut at the date itself; intraday bars include every bar ON curr_date up to
+    # "now" — a plain midnight cutoff would wrongly drop the current day's hourly
+    # bars. An explicit time on curr_date (a backtest timestamp) is honored as-is.
+    if interval == "1d" or curr_date_dt != curr_date_dt.normalize():
+        cutoff = curr_date_dt
+    else:
+        day_end = curr_date_dt + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        cutoff = min(day_end, pd.Timestamp.utcnow().tz_localize(None))
+    data = data[data["Date"] <= cutoff]
 
     # Reject a stale frame (latest row far older than curr_date) rather than
     # feeding year-old prices into indicators (#1021).
@@ -217,12 +237,20 @@ class StockstatsUtils:
             str, "curr date for retrieving stock price data, YYYY-mm-dd"
         ],
     ):
+        interval = get_config().get("data_interval", "1d")
         data = load_ohlcv(symbol, curr_date)
         df = wrap(data)
+        df[indicator]  # trigger stockstats to calculate the indicator
+
+        if interval != "1d":
+            # Intraday: load_ohlcv already trims to bars at/before the as_of
+            # cutoff, so the most recent bar is the value we want.
+            if df.empty:
+                return "N/A: No intraday data at or before this time"
+            return df.iloc[-1][indicator]
+
         df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
         curr_date_str = pd.to_datetime(curr_date).strftime("%Y-%m-%d")
-
-        df[indicator]  # trigger stockstats to calculate the indicator
         matching_rows = df[df["Date"].str.startswith(curr_date_str)]
 
         if not matching_rows.empty:

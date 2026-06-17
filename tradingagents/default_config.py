@@ -18,6 +18,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
+    "TRADINGAGENTS_DATA_INTERVAL":        "data_interval",
 }
 
 
@@ -81,6 +82,16 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
     "analyst_concurrency_limit": 1,
+    # Intraday forecasting configuration
+    # ``data_interval`` is the base OHLCV bar used for both price and indicator
+    # fetches. "1h" powers the intraday (next-1h / next-4h) forecaster; "1d"
+    # restores the original daily behavior. yfinance intraday history is limited
+    # (~730 days for 1h bars), which the data layer handles by clamping the
+    # fetch window when an intraday interval is selected.
+    "data_interval": "1h",
+    # Horizons, in hours, that the forecaster predicts (1 = next hour, 4 = next
+    # 4 hours). Consumed by the forecast output schema and the scoring loop.
+    "forecast_horizons": [1, 4],
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.
