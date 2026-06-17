@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
-from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
+from tradingagents.agents.schemas import Direction, Forecast
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.graph.propagation import Propagator
 from tradingagents.graph.reflection import Reflector
@@ -84,15 +84,17 @@ def _make_pm_state(past_context=""):
     }
 
 
-def _structured_pm_llm(captured: dict, decision: PortfolioDecision | None = None):
+def _structured_pm_llm(captured: dict, decision: Forecast | None = None):
     """Build a MagicMock LLM whose with_structured_output binding captures the
-    prompt and returns a real PortfolioDecision (so render_pm_decision works).
+    prompt and returns a real Forecast (so render_forecast works).
     """
     if decision is None:
-        decision = PortfolioDecision(
-            rating=PortfolioRating.HOLD,
-            executive_summary="Hold the position; await catalyst.",
-            investment_thesis="Balanced view; neither side carried the debate.",
+        decision = Forecast(
+            direction_1h=Direction.FLAT, expected_price_1h=100.0,
+            range_low_1h=99.0, range_high_1h=101.0, confidence_1h=50,
+            direction_4h=Direction.FLAT, expected_price_4h=100.0,
+            range_low_4h=98.0, range_high_4h=102.0, confidence_4h=50,
+            reasons="Balanced; neither side carried the debate.",
         )
     structured = MagicMock()
     structured.invoke.side_effect = lambda prompt: (
@@ -705,27 +707,29 @@ class TestPortfolioManagerInjection:
         pm_node(state)
         assert "Lessons from prior decisions" not in captured["prompt"]
 
-    def test_pm_returns_rendered_markdown_with_rating(self):
-        """The structured PortfolioDecision is rendered to markdown that
-        downstream consumers (memory log, signal processor, CLI display)
-        can parse without any extra LLM call."""
+    def test_pm_returns_rendered_forecast_markdown(self):
+        """The structured Forecast is rendered to markdown that downstream
+        consumers (memory log, signal processor, CLI display) can parse
+        without any extra LLM call."""
         captured = {}
-        decision = PortfolioDecision(
-            rating=PortfolioRating.OVERWEIGHT,
-            executive_summary="Build position gradually over the next two weeks.",
-            investment_thesis="AI capex cycle remains intact; institutional flows constructive.",
-            price_target=215.0,
-            time_horizon="3-6 months",
+        decision = Forecast(
+            direction_1h=Direction.UP, expected_price_1h=65950.0,
+            range_low_1h=65700.0, range_high_1h=66150.0, confidence_1h=62,
+            direction_4h=Direction.DOWN, expected_price_4h=65400.0,
+            range_low_4h=64900.0, range_high_4h=65900.0, confidence_4h=48,
+            reasons="MACD turned up off oversold; ATR implies a ~250/hr range.",
+            key_levels="support 64900 / resistance 66150",
+            invalidation="A 1h close below 64900 flips the 4h view.",
         )
         llm = _structured_pm_llm(captured, decision)
         pm_node = create_portfolio_manager(llm)
         result = pm_node(_make_pm_state())
         md = result["final_trade_decision"]
-        assert "**Rating**: Overweight" in md
-        assert "**Executive Summary**: Build position gradually" in md
-        assert "**Investment Thesis**: AI capex cycle" in md
-        assert "**Price Target**: 215.0" in md
-        assert "**Time Horizon**: 3-6 months" in md
+        assert "**Primary signal (next 1h): Up**" in md
+        assert "| Next 1h | Up |" in md
+        assert "| Next 4h | Down |" in md
+        assert "**Why:** MACD turned up" in md
+        assert "**Key levels:** support 64900" in md
 
     def test_pm_falls_back_to_freetext_when_structured_unavailable(self):
         """If a provider does not support with_structured_output, the agent

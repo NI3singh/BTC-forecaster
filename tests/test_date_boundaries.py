@@ -20,9 +20,10 @@ def test_get_yfin_requests_inclusive_end(monkeypatch):
         def __init__(self, symbol):
             pass
 
-        def history(self, start, end):
+        def history(self, start, end, interval=None):
             captured["start"] = start
             captured["end"] = end
+            captured["interval"] = interval
             idx = pd.to_datetime(["2025-05-08", "2025-05-09"])
             return pd.DataFrame(
                 {"Open": [1.0, 2.0], "High": [1.0, 2.0], "Low": [1.0, 2.0],

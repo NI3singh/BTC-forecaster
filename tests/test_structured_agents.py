@@ -15,12 +15,13 @@ from pydantic import ValidationError
 from tradingagents.agents.analysts.sentiment_analyst import create_sentiment_analyst
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.schemas import (
-    PortfolioRating,
+    Direction,
+    Forecast,
     ResearchPlan,
     SentimentBand,
     SentimentReport,
-    TraderAction,
     TraderProposal,
+    render_forecast,
     render_research_plan,
     render_sentiment_report,
     render_trader_proposal,
@@ -35,60 +36,85 @@ from tradingagents.agents.trader.trader import create_trader
 @pytest.mark.unit
 class TestRenderTraderProposal:
     def test_minimal_required_fields(self):
-        p = TraderProposal(action=TraderAction.HOLD, reasoning="Balanced setup; no edge.")
+        p = TraderProposal(direction=Direction.FLAT, reasoning="Balanced setup; no edge.")
         md = render_trader_proposal(p)
-        assert "**Action**: Hold" in md
+        assert "**Direction**: Flat" in md
         assert "**Reasoning**: Balanced setup; no edge." in md
-        # The trailing FINAL TRANSACTION PROPOSAL line is preserved for the
-        # analyst stop-signal text and any external code that greps for it.
-        assert "FINAL TRANSACTION PROPOSAL: **HOLD**" in md
+        # Greppable marker of the desk's preliminary directional call.
+        assert "FORECAST (next 1-4h): **FLAT**" in md
 
-    def test_optional_fields_included_when_present(self):
+    def test_optional_key_level_included_when_present(self):
         p = TraderProposal(
-            action=TraderAction.BUY,
-            reasoning="Strong technicals + fundamentals.",
-            entry_price=189.5,
-            stop_loss=178.0,
-            position_sizing="6% of portfolio",
+            direction=Direction.UP,
+            reasoning="Reclaimed VWMA on rising volume.",
+            key_level=189.5,
         )
         md = render_trader_proposal(p)
-        assert "**Action**: Buy" in md
-        assert "**Entry Price**: 189.5" in md
-        assert "**Stop Loss**: 178.0" in md
-        assert "**Position Sizing**: 6% of portfolio" in md
-        assert "FINAL TRANSACTION PROPOSAL: **BUY**" in md
+        assert "**Direction**: Up" in md
+        assert "**Key Level**: 189.5" in md
+        assert "FORECAST (next 1-4h): **UP**" in md
 
-    def test_optional_fields_omitted_when_absent(self):
-        p = TraderProposal(action=TraderAction.SELL, reasoning="Guidance cut.")
+    def test_optional_key_level_omitted_when_absent(self):
+        p = TraderProposal(direction=Direction.DOWN, reasoning="Rejected at resistance.")
         md = render_trader_proposal(p)
-        assert "Entry Price" not in md
-        assert "Stop Loss" not in md
-        assert "Position Sizing" not in md
-        assert "FINAL TRANSACTION PROPOSAL: **SELL**" in md
+        assert "Key Level" not in md
+        assert "FORECAST (next 1-4h): **DOWN**" in md
 
 
 @pytest.mark.unit
 class TestRenderResearchPlan:
     def test_required_fields(self):
         p = ResearchPlan(
-            recommendation=PortfolioRating.OVERWEIGHT,
-            rationale="Bull case carried; tailwinds intact.",
-            strategic_actions="Build position over two weeks; cap at 5%.",
+            bias=Direction.UP,
+            rationale="Bull case carried; momentum intact.",
+            what_to_watch="A 1h close back below VWMA flips the bias.",
         )
         md = render_research_plan(p)
-        assert "**Recommendation**: Overweight" in md
+        assert "**Bias**: Up" in md
         assert "**Rationale**: Bull case carried" in md
-        assert "**Strategic Actions**: Build position" in md
+        assert "**What to Watch**: A 1h close" in md
 
-    def test_all_5_tier_ratings_render(self):
-        for rating in PortfolioRating:
-            p = ResearchPlan(
-                recommendation=rating,
-                rationale="r",
-                strategic_actions="s",
-            )
+    def test_all_directions_render(self):
+        for direction in Direction:
+            p = ResearchPlan(bias=direction, rationale="r", what_to_watch="w")
             md = render_research_plan(p)
-            assert f"**Recommendation**: {rating.value}" in md
+            assert f"**Bias**: {direction.value}" in md
+
+
+@pytest.mark.unit
+class TestRenderForecast:
+    def _forecast(self, **kw):
+        base = dict(
+            direction_1h=Direction.UP, expected_price_1h=65950.0,
+            range_low_1h=65700.0, range_high_1h=66150.0, confidence_1h=62,
+            direction_4h=Direction.DOWN, expected_price_4h=65400.0,
+            range_low_4h=64900.0, range_high_4h=65900.0, confidence_4h=48,
+            reasons="MACD turned up off oversold; ATR ~250/hr.",
+        )
+        base.update(kw)
+        return Forecast(**base)
+
+    def test_primary_signal_marker_and_table(self):
+        md = render_forecast(self._forecast())
+        assert "**Primary signal (next 1h): Up**" in md
+        assert "| Next 1h | Up |" in md
+        assert "| Next 4h | Down |" in md
+        assert "Medium (62%)" in md
+        assert "Low (48%)" in md
+
+    def test_optional_levels_and_invalidation(self):
+        md = render_forecast(self._forecast(
+            key_levels="support 64900 / resistance 66150",
+            invalidation="1h close below 64900 flips the 4h view",
+        ))
+        assert "**Key levels:** support 64900" in md
+        assert "**What would invalidate this:**" in md
+
+    def test_confidence_bands(self):
+        from tradingagents.agents.schemas import _confidence_band
+        assert _confidence_band(75) == "High"
+        assert _confidence_band(60) == "Medium"
+        assert _confidence_band(40) == "Low"
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +125,7 @@ class TestRenderResearchPlan:
 def _make_trader_state():
     return {
         "company_of_interest": "NVDA",
-        "investment_plan": "**Recommendation**: Buy\n**Rationale**: ...\n**Strategic Actions**: ...",
+        "investment_plan": "**Bias**: Up\n**Rationale**: ...\n**What to Watch**: ...",
     }
 
 
@@ -109,7 +135,7 @@ def _structured_trader_llm(captured: dict, proposal: TraderProposal | None = Non
     """
     if proposal is None:
         proposal = TraderProposal(
-            action=TraderAction.BUY,
+            direction=Direction.UP,
             reasoning="Strong setup.",
         )
     structured = MagicMock()
@@ -126,35 +152,33 @@ class TestTraderAgent:
     def test_structured_path_produces_rendered_markdown(self):
         captured = {}
         proposal = TraderProposal(
-            action=TraderAction.BUY,
+            direction=Direction.UP,
             reasoning="AI capex cycle intact; institutional flows constructive.",
-            entry_price=189.5,
-            stop_loss=178.0,
-            position_sizing="6% of portfolio",
+            key_level=189.5,
         )
         llm = _structured_trader_llm(captured, proposal)
         trader = create_trader(llm)
         result = trader(_make_trader_state())
         plan = result["trader_investment_plan"]
-        assert "**Action**: Buy" in plan
-        assert "**Entry Price**: 189.5" in plan
-        assert "FINAL TRANSACTION PROPOSAL: **BUY**" in plan
+        assert "**Direction**: Up" in plan
+        assert "**Key Level**: 189.5" in plan
+        assert "FORECAST (next 1-4h): **UP**" in plan
         # The same rendered markdown is also added to messages for downstream agents.
         assert plan in result["messages"][0].content
 
-    def test_prompt_includes_investment_plan(self):
+    def test_prompt_includes_research_verdict(self):
         captured = {}
         llm = _structured_trader_llm(captured)
         trader = create_trader(llm)
         trader(_make_trader_state())
-        # The investment plan is in the user message of the captured prompt.
+        # The research manager's verdict is in the user message of the captured prompt.
         prompt = captured["prompt"]
-        assert any("Proposed Investment Plan" in m["content"] for m in prompt)
+        assert any("Research Manager's verdict" in m["content"] for m in prompt)
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = (
-            "**Action**: Sell\n\nGuidance cut hits margins.\n\n"
-            "FINAL TRANSACTION PROPOSAL: **SELL**"
+            "**Direction**: Down\n\nMomentum fading into resistance.\n\n"
+            "FORECAST (next 1-4h): **DOWN**"
         )
         llm = MagicMock()
         llm.with_structured_output.side_effect = NotImplementedError("provider unsupported")
@@ -186,9 +210,9 @@ def _make_rm_state():
 def _structured_rm_llm(captured: dict, plan: ResearchPlan | None = None):
     if plan is None:
         plan = ResearchPlan(
-            recommendation=PortfolioRating.HOLD,
+            bias=Direction.FLAT,
             rationale="Balanced view across both sides.",
-            strategic_actions="Hold current position; reassess after earnings.",
+            what_to_watch="Reassess if price breaks the overnight range.",
         )
     structured = MagicMock()
     structured.invoke.side_effect = lambda prompt: (
@@ -204,30 +228,30 @@ class TestResearchManagerAgent:
     def test_structured_path_produces_rendered_markdown(self):
         captured = {}
         plan = ResearchPlan(
-            recommendation=PortfolioRating.OVERWEIGHT,
-            rationale="Bull case is stronger; AI tailwind intact.",
-            strategic_actions="Build position gradually over two weeks.",
+            bias=Direction.UP,
+            rationale="Bull case is stronger; momentum intact.",
+            what_to_watch="Watch the 1h VWMA reclaim holding.",
         )
         llm = _structured_rm_llm(captured, plan)
         rm = create_research_manager(llm)
         result = rm(_make_rm_state())
         ip = result["investment_plan"]
-        assert "**Recommendation**: Overweight" in ip
+        assert "**Bias**: Up" in ip
         assert "**Rationale**: Bull case" in ip
-        assert "**Strategic Actions**: Build position" in ip
+        assert "**What to Watch**: Watch the 1h" in ip
 
-    def test_prompt_uses_5_tier_rating_scale(self):
-        """The RM prompt must list all five tiers so the schema enum matches user expectations."""
+    def test_prompt_uses_directional_scale(self):
+        """The RM prompt must list the Up/Flat/Down directional options."""
         captured = {}
         llm = _structured_rm_llm(captured)
         rm = create_research_manager(llm)
         rm(_make_rm_state())
         prompt = captured["prompt"]
-        for tier in ("Buy", "Overweight", "Hold", "Underweight", "Sell"):
-            assert f"**{tier}**" in prompt, f"missing {tier} in prompt"
+        for d in ("Up", "Flat", "Down"):
+            assert f"**{d}**" in prompt, f"missing {d} in prompt"
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
-        plain_response = "**Recommendation**: Sell\n\n**Rationale**: ...\n\n**Strategic Actions**: ..."
+        plain_response = "**Bias**: Down\n\n**Rationale**: ...\n\n**What to Watch**: ..."
         llm = MagicMock()
         llm.with_structured_output.side_effect = NotImplementedError("provider unsupported")
         llm.invoke.return_value = MagicMock(content=plain_response)

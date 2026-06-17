@@ -1,16 +1,19 @@
-"""Tests for the shared rating heuristic and the SignalProcessor adapter.
+"""Tests for the rating/direction heuristics and the SignalProcessor adapter.
 
-The Portfolio Manager produces a typed PortfolioDecision via structured
-output and renders it to markdown that always contains a ``**Rating**: X``
-header.  The deterministic heuristic in ``tradingagents.agents.utils.rating``
-is therefore sufficient to extract the rating downstream — no second LLM
-call is needed — and SignalProcessor is now a thin adapter that delegates
-to it.
+The Portfolio Manager now produces a typed ``Forecast`` rendered to markdown
+with a ``**Primary signal (next 1h): <Direction>**`` marker. ``parse_direction``
+in ``tradingagents.agents.utils.rating`` extracts that headline direction with
+no extra LLM call, and SignalProcessor is a thin adapter that delegates to it.
+``parse_rating`` (the legacy 5-tier heuristic) is retained and still covered.
 """
 
 import pytest
 
-from tradingagents.agents.utils.rating import RATINGS_5_TIER, parse_rating
+from tradingagents.agents.utils.rating import (
+    RATINGS_5_TIER,
+    parse_direction,
+    parse_rating,
+)
 from tradingagents.graph.signal_processing import SignalProcessor
 
 # ---------------------------------------------------------------------------
@@ -67,23 +70,41 @@ class TestParseRating:
 
 
 @pytest.mark.unit
+class TestParseDirection:
+    def test_marker_up(self):
+        assert parse_direction("**Primary signal (next 1h): Up**") == "Up"
+
+    def test_marker_down(self):
+        assert parse_direction("Primary signal (next 1h): Down") == "Down"
+
+    def test_fallback_first_direction_word(self):
+        assert parse_direction("The view leans Flat after the bounce.") == "Flat"
+
+    def test_no_direction_returns_default(self):
+        assert parse_direction("No clear read at this time.") == "Flat"
+
+    def test_no_direction_custom_default(self):
+        assert parse_direction("Plain prose.", default="Down") == "Down"
+
+
+@pytest.mark.unit
 class TestSignalProcessor:
-    def test_returns_rating_from_pm_markdown(self):
+    def test_returns_direction_from_forecast_markdown(self):
         sp = SignalProcessor()
-        md = "**Rating**: Overweight\n\n**Executive Summary**: Build gradually."
-        assert sp.process_signal(md) == "Overweight"
+        md = "**Primary signal (next 1h): Up**\n\n| Next 1h | Up | $1 | n/a | Medium (60%) |"
+        assert sp.process_signal(md) == "Up"
 
     def test_makes_no_llm_calls(self):
         """SignalProcessor must not invoke the LLM it was constructed with —
-        the rating is parseable from the rendered PM markdown directly."""
+        the direction is parseable from the rendered forecast markdown directly."""
         from unittest.mock import MagicMock
 
         llm = MagicMock()
         sp = SignalProcessor(llm)
-        sp.process_signal("Rating: Buy\nDetails.")
+        sp.process_signal("**Primary signal (next 1h): Down**")
         llm.invoke.assert_not_called()
         llm.with_structured_output.assert_not_called()
 
-    def test_default_when_no_rating_present(self):
+    def test_default_when_no_signal_present(self):
         sp = SignalProcessor()
-        assert sp.process_signal("Plain prose without a recommendation.") == "Hold"
+        assert sp.process_signal("Plain prose without a directional signal.") == "Flat"
