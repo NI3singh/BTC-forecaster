@@ -84,11 +84,27 @@ def create_portfolio_manager(llm):
             if sigma_bar:
                 post_process = functools.partial(apply_vol_scaled_ranges, sigma_bar=sigma_bar)
 
+        # Quantitative prior (opt-in via quant_enabled): per-horizon gradient-boosted
+        # P(up) from the quant brain, injected as the directional anchor the LLM
+        # explains/adjusts rather than invents. Best-effort; never blocks a forecast.
+        quant_block = ""
+        if cfg.get("quant_enabled") and trade_date:
+            try:
+                from tradingagents.forecasting.quant import QuantForecaster
+                from tradingagents.forecasting.quant.forecaster import render_quant_block
+                quant_block = render_quant_block(
+                    company_name, QuantForecaster(company_name).predict()
+                )
+                if quant_block:
+                    quant_block += "\n\n"
+            except Exception:
+                quant_block = ""
+
         prompt = f"""As the Portfolio Manager on an intraday price-forecasting desk, synthesize the risk analysts' debate and the desk's analysis into the FINAL price forecast for {company_name}, covering all six horizons: 5m, 15m, 30m, 1h, 2h and 4h.
 
 {instrument_context}
 
-{anchor_block}For EACH of the six horizons (5m, 15m, 30m, 1h, 2h, 4h) provide:
+{anchor_block}{quant_block}For EACH of the six horizons (5m, 15m, 30m, 1h, 2h, 4h) provide:
 - a direction (Up / Flat / Down),
 - an approximate expected price in the quote currency,
 - an expected price range (low and high), sized from the intraday ATR / volatility and widening with the horizon (these are refined from realized volatility after you answer, so concentrate on a well-centered expected price),

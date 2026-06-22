@@ -16,6 +16,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
     "TRADINGAGENTS_PM_SAMPLES":           "pm_samples",
+    "TRADINGAGENTS_QUANT_ENABLED":        "quant_enabled",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
@@ -108,6 +109,14 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # means "inside the noise" consistently across 5m..4h. Raise to treat more
     # near-zero moves as Flat; lower to grade direction more strictly.
     "forecast_deadband_base": 0.001,
+    # Quantitative "brain": per-horizon gradient-boosted P(up) models (Binance 5m
+    # data) injected into the Portfolio Manager as a measured directional prior.
+    # Opt-in (adds a network fetch + model training/inference). quant_total_bars =
+    # 5m bars to train on (50000 ~= 174 days); quant_retrain_hours = reuse the
+    # persisted models for this long before retraining.
+    "quant_enabled": False,
+    "quant_total_bars": 50000,
+    "quant_retrain_hours": 6,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

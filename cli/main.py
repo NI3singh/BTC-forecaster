@@ -1384,5 +1384,23 @@ def backtest(
     console.print(Markdown(backtest_markdown(asset, results)))
 
 
+@app.command("quant-eval")
+def quant_eval(
+    asset: str = typer.Option("BTC-USD", help="Ticker to evaluate the quant models on."),
+    bars: int = typer.Option(50000, help="Number of 5m bars to train/evaluate on."),
+):
+    """Walk-forward out-of-sample accuracy of the quant brain, per horizon.
+
+    Trains a gradient-boosted direction model for each horizon (5m..4h) on Binance
+    5m data and reports its OOS accuracy vs the naive baselines — the honest answer
+    to "which horizons does the quant model actually have an edge on?".
+    """
+    from tradingagents.forecasting.quant import QuantForecaster
+    from tradingagents.forecasting.quant.forecaster import quant_eval_markdown
+    console.print(f"[dim]Training + walk-forward over {bars} 5m bars (this takes a minute)...[/dim]")
+    results = QuantForecaster(asset, total=bars).evaluate()
+    console.print(Markdown(quant_eval_markdown(asset, results)))
+
+
 if __name__ == "__main__":
     app()

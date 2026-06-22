@@ -44,6 +44,11 @@ dev = [
 bedrock = [
     "langchain-aws>=1.5.0",
 ]
+# Quantitative forecasting brain: per-horizon gradient-boosted direction models.
+# Optional so the core install stays lean: pip install "tradingagents[quant]".
+quant = [
+    "scikit-learn>=1.3",
+]
 
 [project.scripts]
 tradingagents = "cli.main:app"
