@@ -1298,6 +1298,7 @@ def run_analysis(checkpoint: bool = False):
         if record_forecast(
             config, selections["ticker"], selections["analysis_date"],
             final_state.get("final_trade_decision", ""),
+            sidebyside=final_state.get("quant_fusion"),
         ):
             console.print("[dim]✓ Forecast logged to the track record (run `score` later to grade it).[/dim]")
     except Exception:

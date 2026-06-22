@@ -186,6 +186,7 @@ Ground every number in the analysts' evidence; do not fabricate precision.{get_l
         return {
             "risk_debate_state": new_risk_debate_state,
             "final_trade_decision": final_trade_decision,
+            "quant_fusion": fusion_sidebyside,
         }
 
     return portfolio_manager_node

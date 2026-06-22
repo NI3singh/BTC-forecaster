@@ -261,6 +261,31 @@ class TestForecastFeedbackBlock:
 
 
 @pytest.mark.unit
+class TestSourceComparison:
+    """Two 1h calls, both realized Up; fused right both times, quant & desk 1-of-2."""
+
+    def test_scores_quant_agent_and_fused_separately(self, tmp_path):
+        tr = ForecastTrackRecord(tmp_path / "tr.jsonl")
+        preds = parse_forecast_markdown(
+            render_forecast(make_forecast(direction_1h=Direction.UP, confidence_1h=60))
+        )
+        tr.log("BTC-USD", "2026-06-14T05:00:00", preds, current_price=65000.0,
+               extra={"1h": {"quant_direction": "Up", "agent_direction": "Down"}})
+        tr.log("BTC-USD", "2026-06-15T05:00:00", preds, current_price=65000.0,
+               extra={"1h": {"quant_direction": "Down", "agent_direction": "Up"}})
+
+        def price_at(asset, target_iso):
+            return 66000.0 if "T06:00" in target_iso else None
+
+        tr.resolve(price_at)
+        sa = tr.summary()["by_horizon"]["1h"]["source_accuracy"]
+        assert sa["fused"] == 1.0   # fused Up both times, realized Up
+        assert sa["quant"] == 0.5   # Up then Down
+        assert sa["agent"] == 0.5   # Down then Up
+        assert "Source comparison" in tr.summary_markdown()
+
+
+@pytest.mark.unit
 class TestDirectionalCommitment:
     """Five 1h calls exercising every commit/move combination at entry 65000.
 

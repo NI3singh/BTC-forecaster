@@ -134,6 +134,13 @@ def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, flo
 
 # Confidence bands for the reliability curve (low inclusive, high exclusive; the
 # last bin is closed at 100). Coarse on purpose so per-bin counts stay meaningful.
+def _direction_accuracy(rows: list[dict], field: str) -> float | None:
+    """Fraction of ``rows`` where boolean ``field`` is True, over rows where it is
+    set. Used to score the quant / agent / fused directions side by side."""
+    vals = [r[field] for r in rows if r.get(field) is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
 _RELIABILITY_EDGES = [(0, 50), (50, 60), (60, 70), (70, 80), (80, 101)]
 
 
@@ -187,12 +194,18 @@ class ForecastTrackRecord:
         tmp.replace(self.path)
 
     def log(self, asset: str, as_of_iso: str, predictions: dict,
-            current_price: float | None = None, model_version: str = "") -> bool:
-        """Append a forecast. Idempotent on ``(asset, as_of_iso)``; returns True if written."""
+            current_price: float | None = None, model_version: str = "",
+            extra: dict | None = None) -> bool:
+        """Append a forecast. Idempotent on ``(asset, as_of_iso)``; returns True if written.
+
+        ``extra`` maps a horizon to additional per-horizon fields to store (e.g.
+        ``quant_direction`` / ``agent_direction`` for 3-way source scoring).
+        """
         records = self._load()
         for r in records:
             if r["asset"] == asset and r["as_of"] == as_of_iso:
                 return False
+        extra = extra or {}
         records.append({
             "asset": asset,
             "as_of": as_of_iso,
@@ -200,7 +213,7 @@ class ForecastTrackRecord:
             "model_version": model_version,
             "horizons": {
                 h: {**p, "realized_price": None, "direction_correct": None,
-                    "in_range": None, "abs_pct_error": None}
+                    "in_range": None, "abs_pct_error": None, **extra.get(h, {})}
                 for h, p in (predictions or {}).items()
             },
         })
@@ -238,8 +251,14 @@ class ForecastTrackRecord:
                 p["realized_price"] = realized
                 p["deadband"] = db
                 if entry:
-                    p["direction_correct"] = realized_direction(entry, realized, db) == p["direction"]
+                    realized_label = realized_direction(entry, realized, db)
+                    p["direction_correct"] = realized_label == p["direction"]
                     p["abs_pct_error"] = abs(realized - p["expected_price"]) / entry
+                    # Score the quant and agent (pre-fusion) calls too, when logged.
+                    if p.get("quant_direction"):
+                        p["quant_direction_correct"] = realized_label == p["quant_direction"]
+                    if p.get("agent_direction"):
+                        p["agent_direction_correct"] = realized_label == p["agent_direction"]
                 if p.get("range_low") is not None and p.get("range_high") is not None:
                     p["in_range"] = p["range_low"] <= realized <= p["range_high"]
                 scored += 1
@@ -377,6 +396,13 @@ class ForecastTrackRecord:
             side_n = sum(1 for _, moved in committed if moved)
             side_hits = sum(1 for ok, moved in committed if moved and ok)
 
+            # 3-way source comparison: quant-alone vs desk-alone vs fused direction.
+            source_accuracy = {
+                "fused": dir_acc,
+                "quant": _direction_accuracy(rows, "quant_direction_correct"),
+                "agent": _direction_accuracy(rows, "agent_direction_correct"),
+            }
+
             by_horizon[h] = {
                 "resolved": len(rows),
                 "directional_accuracy": dir_acc,
@@ -405,6 +431,7 @@ class ForecastTrackRecord:
                 "side_n": side_n,
                 "side_accuracy": side_hits / side_n if side_n else None,
                 "side_accuracy_ci": wilson_interval(side_hits, side_n) if side_n else None,
+                "source_accuracy": source_accuracy,
             }
         return {"total_forecasts": len(records), "by_horizon": by_horizon}
 
@@ -485,6 +512,29 @@ class ForecastTrackRecord:
                 f"| {h} | {committed_cell(st)} | {pct(st['committed_accuracy'])} | "
                 f"{side_cell(st)} |"
             )
+
+        # Source comparison — only when the quant/agent split was logged (fusion on).
+        if any(
+            st["source_accuracy"]["quant"] is not None
+            or st["source_accuracy"]["agent"] is not None
+            for st in s["by_horizon"].values()
+        ):
+            lines += [
+                "",
+                "### Source comparison — quant vs desk vs fused directional accuracy",
+                "",
+                "_Which signal is actually right, per horizon. If **fused** doesn't beat "
+                "**quant**, raise `quant_fusion_weight`; if **quant** lags the **desk**, "
+                "lower it. The data decides the weight, not assumptions._",
+                "",
+                "| Horizon | Quant | Desk | Fused |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+            for h, st in s["by_horizon"].items():
+                sa = st["source_accuracy"]
+                if sa["quant"] is None and sa["agent"] is None:
+                    continue
+                lines.append(f"| {h} | {pct(sa['quant'])} | {pct(sa['agent'])} | {pct(sa['fused'])} |")
         return "\n".join(lines)
 
 
@@ -559,8 +609,13 @@ def intraday_market_anchor(asset: str, as_of_date: str) -> dict | None:
 
 
 def record_forecast(config: dict | None, asset: str, as_of_date: str,
-                    forecast_markdown: str, model_version: str = "agents-v1-no-kronos") -> bool:
-    """Parse a rendered forecast and log it with the as_of spot price. Never raises."""
+                    forecast_markdown: str, model_version: str = "agents-v1-no-kronos",
+                    sidebyside: list | None = None) -> bool:
+    """Parse a rendered forecast and log it with the as_of spot price. Never raises.
+
+    ``sidebyside`` (the PM's quant/agent/fused per-horizon list) is stored so the
+    quant and pre-fusion agent directions can be scored alongside the fused call.
+    """
     try:
         preds = parse_forecast_markdown(forecast_markdown)
         path = _track_path(config)
@@ -570,8 +625,15 @@ def record_forecast(config: dict | None, asset: str, as_of_date: str,
         if anchor is None:
             return False
         as_of_iso, current_price = anchor
+        extra = None
+        if sidebyside:
+            extra = {
+                r["horizon"]: {"quant_direction": r.get("quant_dir"),
+                               "agent_direction": r.get("agent_dir")}
+                for r in sidebyside if r.get("horizon")
+            }
         return ForecastTrackRecord(path).log(
-            asset, as_of_iso, preds, current_price, model_version
+            asset, as_of_iso, preds, current_price, model_version, extra=extra
         )
     except Exception:
         return False
