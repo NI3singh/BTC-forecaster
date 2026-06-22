@@ -364,6 +364,16 @@ class TradingAgentsGraph:
         # Initialize state — inject memory log context for PM and the
         # deterministically resolved instrument identity for all agents.
         past_context = self.memory_log.get_past_context(company_name)
+        # Close the feedback loop: feed the desk its OWN per-horizon forecast track
+        # record — the right outcome signal for a 5m-4h call. For crypto the
+        # upstream 5-day SPY-alpha "lessons" are meaningless, so replace them;
+        # otherwise augment what the stock pipeline already produced.
+        from tradingagents.forecasting.track_record import forecast_feedback_block
+        forecast_feedback = forecast_feedback_block(self.config)
+        if asset_type == "crypto":
+            past_context = forecast_feedback
+        elif forecast_feedback:
+            past_context = forecast_feedback + "\n\n" + past_context
         instrument_context = self.resolve_instrument_context(company_name, asset_type)
         init_agent_state = self.propagator.create_initial_state(
             company_name,

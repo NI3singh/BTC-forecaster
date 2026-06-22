@@ -7,6 +7,7 @@ from tradingagents.agents.schemas import Direction, render_forecast
 from tradingagents.forecasting.track_record import (
     ForecastTrackRecord,
     deadband_for,
+    forecast_feedback_block,
     parse_forecast_markdown,
     realized_direction,
     wilson_interval,
@@ -222,6 +223,41 @@ class TestBaselinesAndCalibration:
         assert st["baselines"]["majority"] == 0.5    # Up is most common (2/4)
         assert st["best_baseline"] == "majority"
         assert st["skill_vs_best_baseline"] == pytest.approx(0.0)
+
+
+@pytest.mark.unit
+class TestForecastFeedbackBlock:
+    def _log_and_resolve(self, tmp_path, n):
+        tr = ForecastTrackRecord(tmp_path / "tr.jsonl")
+        preds = parse_forecast_markdown(render_forecast(make_forecast(confidence_1h=70)))
+        realized = {}
+        for i in range(n):
+            day = f"2026-06-{i + 1:02d}"
+            tr.log("BTC-USD", f"{day}T05:00:00", preds, current_price=65000.0)
+            realized[day] = 66000.0 if i % 2 == 0 else 64000.0  # alternate Up/Down
+
+        def price_at(asset, target_iso):
+            return realized.get(target_iso[:10]) if "T06:00" in target_iso else None
+
+        tr.resolve(price_at)
+        return tmp_path / "tr.jsonl"
+
+    def test_empty_when_no_log(self, tmp_path):
+        assert forecast_feedback_block({"forecast_log_path": str(tmp_path / "nope.jsonl")}) == ""
+
+    def test_empty_when_too_few_resolved(self, tmp_path):
+        path = self._log_and_resolve(tmp_path, 3)  # below the 10-resolved gate
+        assert forecast_feedback_block({"forecast_log_path": str(path)}) == ""
+
+    def test_returns_per_horizon_feedback_when_enough(self, tmp_path):
+        path = self._log_and_resolve(tmp_path, 12)
+        block = forecast_feedback_block({"forecast_log_path": str(path)})
+        assert "1h:" in block
+        assert "directional" in block
+        assert "n=12" in block
+        assert "calibrate" in block.lower()
+        # The 5m horizon never resolved (price_at only answered the 1h target).
+        assert "5m:" not in block
 
 
 @pytest.mark.unit

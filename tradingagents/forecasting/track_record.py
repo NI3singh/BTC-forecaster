@@ -41,6 +41,10 @@ DEADBAND_REF_MINUTES = 5
 # the summary so early noise is not mistaken for measured signal.
 MIN_RESOLVED_N = 30
 
+# A horizon needs at least this many resolved forecasts before its outcomes are fed
+# back into the Portfolio Manager prompt, so a young log can't anchor it to noise.
+_FEEDBACK_MIN_RESOLVED = 10
+
 # Trailing 5m bars used to estimate realized per-bar volatility (sigma) and recent
 # swing levels for the Portfolio Manager's price anchor and vol-scaled ranges.
 _SIGMA_WINDOW_BARS = 100
@@ -600,3 +604,56 @@ def score_and_summarize(config: dict | None) -> str:
     tr = ForecastTrackRecord(path)
     tr.resolve(build_price_at(), deadband_base=base)
     return tr.summary_markdown()
+
+
+def forecast_feedback_block(config: dict | None = None) -> str:
+    """Compact per-horizon feedback from the desk's OWN resolved track record, for
+    injection into the Portfolio Manager prompt.
+
+    This closes the feedback loop: the PM gets graded against the realized price at
+    the RIGHT horizon (5m-4h), so it can calibrate confidence and see where it
+    trails a no-skill baseline — instead of the upstream 5-day SPY-alpha "lessons"
+    that are meaningless for an intraday call. Returns "" when no horizon has enough
+    resolved history yet, so a young/empty log injects nothing. Never raises.
+    """
+    try:
+        path = _track_path(config)
+        if not path or not Path(path).expanduser().exists():
+            return ""
+        summ = ForecastTrackRecord(path).summary()
+    except Exception:
+        return ""
+
+    lines = []
+    for h, st in summ.get("by_horizon", {}).items():
+        n = st.get("resolved", 0)
+        if n < _FEEDBACK_MIN_RESOLVED or st.get("directional_accuracy") is None:
+            continue
+        parts = [f"directional {st['directional_accuracy'] * 100:.0f}%"]
+        skill, base = st.get("skill_vs_best_baseline"), st.get("best_baseline")
+        if skill is not None and base is not None:
+            parts.append(f"skill {skill * 100:+.0f}pp vs {base} baseline")
+        gap = st.get("calibration_gap")
+        if gap is not None:
+            if gap > 0.05:
+                parts.append(f"confidence ran +{gap * 100:.0f}pp hot — lower it")
+            elif gap < -0.05:
+                parts.append(f"confidence {-gap * 100:.0f}pp cold — you may raise it")
+            else:
+                parts.append("confidence well-calibrated")
+        cov = st.get("range_coverage")
+        if cov is not None:
+            parts.append(f"ranges covered {cov * 100:.0f}%")
+        side = st.get("side_accuracy")
+        if side is not None:
+            parts.append(f"right-side {side * 100:.0f}% when committed")
+        lines.append(f"- {h}: " + "; ".join(parts) + f" (n={n}).")
+
+    if not lines:
+        return ""
+    header = (
+        "Your own forecasts so far, graded by horizon — calibrate to THESE measured "
+        "outcomes, not generic priors (skill <0 means you trailed a no-skill "
+        "baseline; trim confidence on horizons where it ran hot):"
+    )
+    return header + "\n" + "\n".join(lines)
