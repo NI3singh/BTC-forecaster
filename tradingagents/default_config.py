@@ -17,6 +17,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
     "TRADINGAGENTS_PM_SAMPLES":           "pm_samples",
     "TRADINGAGENTS_QUANT_ENABLED":        "quant_enabled",
+    "TRADINGAGENTS_QUANT_FUSION_WEIGHT":  "quant_fusion_weight",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
@@ -117,6 +118,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "quant_enabled": False,
     "quant_total_bars": 50000,
     "quant_retrain_hours": 6,
+    # Weight on the quant model when fusing its P(up) with the agents' implied
+    # probability into the final direction/confidence. 0.6 favours the quant (the
+    # only component with a measured directional edge); 1.0 = quant-only, 0.0 =
+    # agents-only. On a quant/desk disagreement the fused conviction is trimmed.
+    "quant_fusion_weight": 0.6,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

@@ -73,7 +73,7 @@ def create_portfolio_manager(llm):
             anchor = intraday_market_anchor(company_name, trade_date)
 
         anchor_block = ""
-        post_process = None
+        range_pp = None
         if anchor:
             from tradingagents.forecasting.ranges import (
                 apply_vol_scaled_ranges,
@@ -82,23 +82,41 @@ def create_portfolio_manager(llm):
             anchor_block = render_anchor_block(company_name, anchor) + "\n\n"
             sigma_bar = anchor.get("sigma_bar")
             if sigma_bar:
-                post_process = functools.partial(apply_vol_scaled_ranges, sigma_bar=sigma_bar)
+                range_pp = functools.partial(apply_vol_scaled_ranges, sigma_bar=sigma_bar)
 
-        # Quantitative prior (opt-in via quant_enabled): per-horizon gradient-boosted
-        # P(up) from the quant brain, injected as the directional anchor the LLM
-        # explains/adjusts rather than invents. Best-effort; never blocks a forecast.
+        # Quantitative brain (opt-in via quant_enabled): per-horizon gradient-boosted
+        # P(up). Injected as a prior the LLM reasons WITH, then fused deterministically
+        # into the final direction/confidence afterward. Best-effort; never blocks.
         quant_block = ""
+        quant_probs: dict = {}
         if cfg.get("quant_enabled") and trade_date:
             try:
                 from tradingagents.forecasting.quant import QuantForecaster
                 from tradingagents.forecasting.quant.forecaster import render_quant_block
-                quant_block = render_quant_block(
-                    company_name, QuantForecaster(company_name).predict()
-                )
+                quant_probs = QuantForecaster(company_name).predict()
+                quant_block = render_quant_block(company_name, quant_probs)
                 if quant_block:
                     quant_block += "\n\n"
             except Exception:
+                quant_probs = {}
                 quant_block = ""
+
+        # Post-process the typed forecast: vol-scaled ranges, then fuse the quant
+        # prior into direction/confidence (capturing a side-by-side for display).
+        fusion_sidebyside: list = []
+
+        def _post_process(forecast):
+            if range_pp is not None:
+                forecast = range_pp(forecast)
+            if quant_probs:
+                from tradingagents.forecasting.fusion import fuse_forecast
+                forecast, sbs = fuse_forecast(
+                    forecast, quant_probs, weight=float(cfg.get("quant_fusion_weight", 0.6))
+                )
+                fusion_sidebyside[:] = sbs
+            return forecast
+
+        post_process = _post_process if (range_pp is not None or quant_probs) else None
 
         prompt = f"""As the Portfolio Manager on an intraday price-forecasting desk, synthesize the risk analysts' debate and the desk's analysis into the FINAL price forecast for {company_name}, covering all six horizons: 5m, 15m, 30m, 1h, 2h and 4h.
 
@@ -133,6 +151,14 @@ Ground every number in the analysts' evidence; do not fabricate precision.{get_l
             samples=pm_samples,
             aggregate=aggregate_forecasts if pm_samples > 1 else None,
         )
+
+        # Show the quant / desk / fused comparison (and disagreement flags) below
+        # the forecast so both signals are visible and cross-checkable.
+        if fusion_sidebyside:
+            from tradingagents.forecasting.fusion import render_fusion_block
+            final_trade_decision = (
+                final_trade_decision + "\n\n" + render_fusion_block(fusion_sidebyside)
+            )
 
         # Pin the forecast to its real baseline (timestamp + spot price at forecast
         # time) so the output is self-documenting, reusing the anchor fetched above.
