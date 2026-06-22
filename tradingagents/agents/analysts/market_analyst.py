@@ -15,6 +15,26 @@ def create_market_analyst(llm):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
 
+        # Quant brain (opt-in): give the technical read the gradient-boosted P(up)
+        # priors so the analyst — and the bull/bear debate that consumes this report
+        # — reasons WITH the model's signal, not just the final PM step. Best-effort.
+        quant_context = ""
+        from tradingagents.dataflows.config import get_config
+        if get_config().get("quant_enabled"):
+            try:
+                from tradingagents.forecasting.quant import QuantForecaster
+                from tradingagents.forecasting.quant.forecaster import render_quant_block
+                company = state["company_of_interest"]
+                block = render_quant_block(company, QuantForecaster(company).predict())
+                if block:
+                    quant_context = (
+                        "\n\nA gradient-boosted quant model (walk-forward validated) gives "
+                        "these per-horizon priors — weigh them in your directional read and "
+                        "flag where the technicals agree or conflict with the model:\n" + block
+                    )
+            except Exception:
+                quant_context = ""
+
         tools = [
             get_stock_data,
             get_indicators,
@@ -64,7 +84,7 @@ Write a concise, evidence-backed INTRADAY technical read a forecaster can act on
                     " If you are unable to fully answer, that's OK; another assistant with different tools"
                     " will help where you left off. Execute what you can to make progress."
                     " You have access to the following tools: {tool_names}.\n{system_message}"
-                    "For your reference, the current date is {current_date}, and forecasts target six horizons from 5 minutes to 4 hours (5m, 15m, 30m, 1h, 2h, 4h). {instrument_context}",
+                    "For your reference, the current date is {current_date}, and forecasts target six horizons from 5 minutes to 4 hours (5m, 15m, 30m, 1h, 2h, 4h). {instrument_context}{quant_context}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
             ]
@@ -74,6 +94,7 @@ Write a concise, evidence-backed INTRADAY technical read a forecaster can act on
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
+        prompt = prompt.partial(quant_context=quant_context)
 
         chain = prompt | llm.bind_tools(tools)
 
