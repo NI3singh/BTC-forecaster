@@ -11,8 +11,14 @@ back gracefully to free-text generation.
 from __future__ import annotations
 
 import functools
+import logging
 
-from tradingagents.agents.schemas import Forecast, render_forecast, render_forecast_anchor
+from tradingagents.agents.schemas import (
+    Forecast,
+    aggregate_forecasts,
+    render_forecast,
+    render_forecast_anchor,
+)
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
@@ -22,11 +28,23 @@ from tradingagents.agents.utils.structured import (
     invoke_structured_or_freetext,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_portfolio_manager(llm):
     structured_llm = bind_structured(llm, Forecast, "Portfolio Manager")
 
     def portfolio_manager_node(state) -> dict:
+        from tradingagents.dataflows.config import get_config
+        cfg = get_config()
+        pm_samples = max(1, int(cfg.get("pm_samples", 1) or 1))
+        if pm_samples > 1 and not cfg.get("temperature"):
+            logger.warning(
+                "pm_samples=%d but temperature is unset/0; self-consistency samples "
+                "may collapse to one (set TRADINGAGENTS_TEMPERATURE > 0).",
+                pm_samples,
+            )
+
         instrument_context = get_instrument_context_from_state(state)
         company_name = state["company_of_interest"]
         trade_date = state.get("trade_date")
@@ -96,6 +114,8 @@ Ground every number in the analysts' evidence; do not fabricate precision.{get_l
             render_forecast,
             "Portfolio Manager",
             post_process=post_process,
+            samples=pm_samples,
+            aggregate=aggregate_forecasts if pm_samples > 1 else None,
         )
 
         # Pin the forecast to its real baseline (timestamp + spot price at forecast

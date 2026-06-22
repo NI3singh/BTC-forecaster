@@ -18,6 +18,7 @@ so that:
 
 from __future__ import annotations
 
+import statistics
 from datetime import datetime
 from enum import Enum
 from typing import Literal
@@ -376,6 +377,55 @@ def render_forecast(f: Forecast) -> str:
     if f.invalidation:
         parts.extend(["", f"**What would invalidate this:** {f.invalidation}"])
     return "\n".join(parts)
+
+
+def aggregate_forecasts(forecasts: list[Forecast]) -> Forecast:
+    """Combine self-consistency samples into one consensus Forecast.
+
+    The Portfolio Manager is the only stochastic node that turns context into the
+    final numbers, so sampling it N times on the SAME context and aggregating
+    denoises that single decision. Per horizon: majority-vote the direction (ties
+    broken by summed sample confidence), take the MEDIAN expected price and median
+    range bounds, and set confidence from the AGREEMENT FRACTION (winning votes /
+    N) — an empirically-grounded raw confidence that the calibration map can then
+    correct. Prose is taken from the sample whose directions best match consensus.
+
+    Needs temperature > 0 to produce diverse samples; otherwise the samples
+    collapse and this is a no-op at N× the cost.
+    """
+    if len(forecasts) == 1:
+        return forecasts[0]
+    n = len(forecasts)
+    fields: dict = {}
+    for label, _ in FORECAST_HORIZONS:
+        tally: dict[Direction, list[float]] = {}
+        for f in forecasts:
+            slot = tally.setdefault(getattr(f, f"direction_{label}"), [0, 0.0])
+            slot[0] += 1
+            slot[1] += getattr(f, f"confidence_{label}")
+        winner = max(tally, key=lambda d: (tally[d][0], tally[d][1]))
+        lows = [getattr(f, f"range_low_{label}") for f in forecasts
+                if getattr(f, f"range_low_{label}") is not None]
+        highs = [getattr(f, f"range_high_{label}") for f in forecasts
+                 if getattr(f, f"range_high_{label}") is not None]
+        fields[f"direction_{label}"] = winner
+        fields[f"expected_price_{label}"] = statistics.median(
+            getattr(f, f"expected_price_{label}") for f in forecasts
+        )
+        fields[f"range_low_{label}"] = statistics.median(lows) if lows else None
+        fields[f"range_high_{label}"] = statistics.median(highs) if highs else None
+        fields[f"confidence_{label}"] = round(100 * tally[winner][0] / n)
+    consensus = max(
+        forecasts,
+        key=lambda f: sum(
+            1 for label, _ in FORECAST_HORIZONS
+            if getattr(f, f"direction_{label}") == fields[f"direction_{label}"]
+        ),
+    )
+    fields["reasons"] = consensus.reasons
+    fields["key_levels"] = consensus.key_levels
+    fields["invalidation"] = consensus.invalidation
+    return Forecast(**fields)
 
 
 # ---------------------------------------------------------------------------

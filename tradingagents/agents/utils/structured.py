@@ -53,6 +53,8 @@ def invoke_structured_or_freetext(
     render: Callable[[T], str],
     agent_name: str,
     post_process: Callable[[T], T] | None = None,
+    samples: int = 1,
+    aggregate: Callable[[list[T]], T] | None = None,
 ) -> str:
     """Run the structured call and render to markdown; fall back to free-text on any failure.
 
@@ -64,10 +66,18 @@ def invoke_structured_or_freetext(
     ``post_process``, when given, transforms the typed result before rendering
     (e.g. overriding LLM-guessed ranges with a deterministic volatility band). It
     runs only on the structured path; the free-text fallback has no typed object.
+
+    ``samples`` > 1 with an ``aggregate`` callable enables self-consistency: the
+    structured call is run ``samples`` times on the same prompt and ``aggregate``
+    combines the typed results into one (then ``post_process`` runs on the
+    consensus). Needs a non-zero temperature to produce diverse samples.
     """
     if structured_llm is not None:
         try:
-            result = structured_llm.invoke(prompt)
+            if samples > 1 and aggregate is not None:
+                result = aggregate([structured_llm.invoke(prompt) for _ in range(samples)])
+            else:
+                result = structured_llm.invoke(prompt)
             if post_process is not None:
                 result = post_process(result)
             return render(result)

@@ -15,6 +15,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_OUTPUT_LANGUAGE":      "output_language",
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
+    "TRADINGAGENTS_PM_SAMPLES":           "pm_samples",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
@@ -83,6 +84,12 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
+    # Self-consistency: how many times to sample the Portfolio Manager on the SAME
+    # context before aggregating (majority-vote direction, median price, confidence
+    # = agreement fraction). >1 denoises the one stochastic decision node and gives
+    # an empirically-grounded confidence. Needs temperature > 0 (reasoning models
+    # may ignore it) or samples collapse. Cost = N x ONE node, not the whole graph.
+    "pm_samples": 1,
     "max_recur_limit": 100,
     "analyst_concurrency_limit": 1,
     # Intraday forecasting configuration
