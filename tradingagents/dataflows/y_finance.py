@@ -11,9 +11,17 @@ from .stockstats_utils import (
     _assert_ohlcv_not_stale,
     filter_financials_by_date,
     load_ohlcv,
+    max_intraday_days,
     yf_retry,
 )
 from .symbol_utils import NoMarketDataError, normalize_symbol
+
+# Intraday bars are short and dense, so bound how much intraday history reaches
+# the LLM. The indicator window needs ENOUGH bars to cover the longest forecast
+# horizon (4h = 48 five-minute bars) with headroom; the raw OHLCV CSV needs a CAP
+# so a dense feed doesn't dump thousands of token-heavy rows into the prompt.
+INTRADAY_INDICATOR_MIN_BARS = 96   # ~8h on 5m bars
+INTRADAY_MAX_CSV_ROWS = 200        # ~16.7h on 5m bars
 
 
 def get_YFin_data_online(
@@ -26,10 +34,11 @@ def get_YFin_data_online(
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
     interval = get_config().get("data_interval", "1d")
-    # yfinance caps intraday history (~730 days for 1h bars). Clamp the start so
-    # the request doesn't error; an intraday forecaster only needs recent bars.
+    # yfinance caps intraday history per interval (~60 days for 5m/15m/30m, ~730
+    # for 1h). Clamp the start so the request doesn't error; an intraday
+    # forecaster only needs recent bars.
     if interval != "1d":
-        min_start = end_dt - relativedelta(days=720)
+        min_start = end_dt - relativedelta(days=max_intraday_days(interval))
         if start_dt < min_start:
             start_dt = min_start
             start_date = start_dt.strftime("%Y-%m-%d")
@@ -66,6 +75,12 @@ def get_YFin_data_online(
     for col in numeric_columns:
         if col in data.columns:
             data[col] = data[col].round(2)
+
+    # Intraday feeds are dense (a 5-minute bar every 5 minutes), so cap how many
+    # bars reach the prompt: the most recent window is what an intraday forecaster
+    # needs, and the full range would be thousands of token-heavy rows.
+    if interval != "1d" and len(data) > INTRADAY_MAX_CSV_ROWS:
+        data = data.tail(INTRADAY_MAX_CSV_ROWS)
 
     # Convert DataFrame to CSV string
     csv_string = data.to_csv()
@@ -111,7 +126,9 @@ def _intraday_indicator_window(
             (ts.strftime("%Y-%m-%d %H:%M"), "N/A" if pd.isna(value) else str(value))
         )
 
-    n = look_back_periods if look_back_periods and look_back_periods > 0 else 30
+    # Floor at INTRADAY_INDICATOR_MIN_BARS so short intraday bars still give the
+    # agent enough recent context to reason about the longest (4h) horizon.
+    n = max(look_back_periods or 0, INTRADAY_INDICATOR_MIN_BARS)
     window = rows[-n:]
     ind_string = "".join(f"{ts}: {value}\n" for ts, value in window)
 

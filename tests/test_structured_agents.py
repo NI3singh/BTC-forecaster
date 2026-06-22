@@ -12,11 +12,11 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
+from tests._forecast_helpers import make_forecast
 from tradingagents.agents.analysts.sentiment_analyst import create_sentiment_analyst
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.schemas import (
     Direction,
-    Forecast,
     ResearchPlan,
     SentimentBand,
     SentimentReport,
@@ -92,12 +92,15 @@ class TestRenderForecast:
             "reasons": "MACD turned up off oversold; ATR ~250/hr.",
         }
         base.update(kw)
-        return Forecast(**base)
+        return make_forecast(**base)
 
     def test_primary_signal_marker_and_table(self):
         md = render_forecast(self._forecast())
         assert "**Primary signal (next 1h): Up**" in md
+        assert "| Next 5m | Up |" in md
+        assert "| Next 30m | Up |" in md
         assert "| Next 1h | Up |" in md
+        assert "| Next 2h | Up |" in md
         assert "| Next 4h | Down |" in md
         assert "Medium (62%)" in md
         assert "Low (48%)" in md
@@ -115,6 +118,13 @@ class TestRenderForecast:
         assert _confidence_band(75) == "High"
         assert _confidence_band(60) == "Medium"
         assert _confidence_band(40) == "Low"
+
+    def test_forecast_anchor_header(self):
+        from tradingagents.agents.schemas import render_forecast_anchor
+        h = render_forecast_anchor("BTC-USD", "2026-06-18T09:50:00", 64200.98)
+        assert "BTC-USD" in h
+        assert "2026-06-18 09:50 UTC" in h  # ISO timestamp formatted for display
+        assert "$64,200.98" in h  # real spot price at forecast time
 
 
 # ---------------------------------------------------------------------------

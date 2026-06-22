@@ -21,7 +21,7 @@ def create_aggressive_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
-        prompt = f"""As the Aggressive Risk Analyst on an intraday price-forecasting desk, argue for a bold, high-conviction reading of the next 1-4 hour forecast. Push the desk to commit to a clear direction and not under-call the size of the move when momentum, volume, and catalysts genuinely support it. Challenge the conservative and neutral analysts where their caution would water down a real signal or set the expected range needlessly wide. Here is the desk's preliminary directional call:
+        prompt = f"""As the Aggressive Risk Analyst on an intraday price-forecasting desk, argue for a bold, high-conviction reading of the intraday (5m-4h) forecast. Push the desk to commit to a clear direction and not under-call the size of the move when momentum, volume, and catalysts genuinely support it. Challenge the conservative and neutral analysts where their caution would water down a real signal or set the expected range needlessly wide. Here is the desk's preliminary directional call:
 
 {trader_decision}
 
@@ -34,7 +34,7 @@ Latest World Affairs Report: {news_report}
 Fundamentals (background) Report: {fundamentals_report}
 Here is the current conversation history: {history} Here are the last arguments from the conservative analyst: {current_conservative_response} Here are the last arguments from the neutral analyst: {current_neutral_response}. If there are no responses from the other viewpoints yet, present your own argument based on the available data.
 
-Engage actively, refute the weaknesses in their logic, and argue why the data justifies a confident next-1-4h call. Debate and persuade, don't just present data. Output conversationally as if you are speaking, without any special formatting.""" + get_language_instruction()
+Engage actively, refute the weaknesses in their logic, and argue why the data justifies a confident next 5m-4h call. Debate and persuade, don't just present data. Output conversationally as if you are speaking, without any special formatting.""" + get_language_instruction()
 
         response = llm.invoke(prompt)
 

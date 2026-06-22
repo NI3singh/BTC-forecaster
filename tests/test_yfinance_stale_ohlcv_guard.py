@@ -166,5 +166,24 @@ class IntradayCacheFreshnessTests(unittest.TestCase):
         )
 
 
+@pytest.mark.unit
+class IntervalHelperTests(unittest.TestCase):
+    """Per-interval helpers underpinning the sub-hourly (5m/15m/30m) data path."""
+
+    def test_floor_freq_for(self):
+        from tradingagents.dataflows.stockstats_utils import floor_freq_for
+        self.assertEqual(floor_freq_for("5m"), "5min")
+        self.assertEqual(floor_freq_for("30m"), "30min")
+        self.assertEqual(floor_freq_for("1h"), "1h")
+        self.assertEqual(floor_freq_for("1d"), "1h")  # fallback for non-intraday
+
+    def test_max_intraday_days(self):
+        from tradingagents.dataflows.stockstats_utils import max_intraday_days
+        self.assertEqual(max_intraday_days("5m"), 59)
+        self.assertEqual(max_intraday_days("15m"), 59)
+        self.assertEqual(max_intraday_days("1h"), 720)
+        self.assertEqual(max_intraday_days("unknown"), 720)  # fallback
+
+
 if __name__ == "__main__":
     unittest.main()

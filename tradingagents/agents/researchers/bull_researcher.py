@@ -24,13 +24,13 @@ def create_bull_researcher(llm):
             else "Asset fundamentals report (may be unavailable for crypto)"
         )
 
-        prompt = f"""You are a Bull Analyst on an intraday price-forecasting desk. Build the strongest evidence-based case that the {target_label}'s price will RISE over the NEXT 1 TO 4 HOURS. Argue the short-horizon bull view and counter the bear's points directly using the hourly evidence.
+        prompt = f"""You are a Bull Analyst on an intraday price-forecasting desk. Build the strongest evidence-based case that the {target_label}'s price will RISE over the NEXT 5 MINUTES TO 4 HOURS (across the 5m, 15m, 30m, 1h, 2h and 4h horizons). Argue the short-horizon bull view and counter the bear's points directly using the intraday (5-minute) evidence.
 
 Key points to focus on:
-- Momentum & trend: bullish MACD/RSI shifts, reclaimed short-term moving averages, higher lows on the hourly chart.
+- Momentum & trend: bullish MACD/RSI shifts, reclaimed short-term moving averages, higher lows on the intraday (5-minute) chart.
 - Breakout / continuation: a key intraday resistance about to give way, a bounce holding at support, volume (VWMA) confirming buyers.
 - Catalysts: breaking news or a sentiment shift that could push price up within hours.
-- Bear counterpoints: dismantle the bear's case with specific hourly data and concrete levels.
+- Bear counterpoints: dismantle the bear's case with specific intraday data and concrete levels.
 - Engagement: conversational, engaging directly with the bear analyst — debate, don't just list data.
 
 Resources available:
@@ -41,7 +41,7 @@ Latest world affairs news: {news_report}
 {fundamentals_label}: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bear argument: {current_response}
-Deliver a compelling short-horizon (1-4h) bull case, refute the bear's concerns, and engage in a dynamic debate.
+Deliver a compelling short-horizon (5m-4h) bull case, refute the bear's concerns, and engage in a dynamic debate.
 """ + get_language_instruction()
 
         response = llm.invoke(prompt)

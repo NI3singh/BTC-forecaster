@@ -32,7 +32,7 @@ def create_trader(llm):
                     "You are a trader on an intraday price-forecasting desk. Based on the "
                     "analysts' intraday reports and the research manager's directional verdict, "
                     "commit to a preliminary directional call (Up, Flat, or Down) for the next "
-                    "1-4 hours, with concise reasoning and the key intraday level that matters. "
+                    "5 minutes to 4 hours, with concise reasoning and the key intraday level that matters. "
                     "This is a directional forecast, not investment advice or position sizing."
                     + get_language_instruction()
                 ),
@@ -42,7 +42,7 @@ def create_trader(llm):
                 "content": (
                     f"Here is the research manager's directional verdict for {company_name}. "
                     f"{instrument_context} It synthesizes the intraday technical, news, and "
-                    f"sentiment analysis. Use it as the basis for your preliminary 1-4 hour "
+                    f"sentiment analysis. Use it as the basis for your preliminary 5m-4h "
                     f"directional call.\n\nResearch Manager's verdict: {investment_plan}\n\n"
                     f"Commit to Up, Flat, or Down and explain why."
                 ),

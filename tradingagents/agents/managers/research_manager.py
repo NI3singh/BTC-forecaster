@@ -22,16 +22,16 @@ def create_research_manager(llm):
 
         investment_debate_state = state["investment_debate_state"]
 
-        prompt = f"""As the Research Manager and debate facilitator on an intraday price-forecasting desk, critically evaluate this round of the bull/bear debate and deliver a clear directional verdict for the next 1-4 hours that the trader can act on.
+        prompt = f"""As the Research Manager and debate facilitator on an intraday price-forecasting desk, critically evaluate this round of the bull/bear debate and deliver a clear directional verdict for the next 5 minutes to 4 hours that the trader can act on.
 
 {instrument_context}
 
 ---
 
 **Directional bias** (choose exactly one):
-- **Up**: The bull case is stronger; price is more likely to rise over the next 1-4 hours.
+- **Up**: The bull case is stronger; price is more likely to rise over the next 5 minutes to 4 hours.
 - **Flat**: The evidence is genuinely balanced, or price is likely to stay inside the noise band.
-- **Down**: The bear case is stronger; price is more likely to fall over the next 1-4 hours.
+- **Down**: The bear case is stronger; price is more likely to fall over the next 5 minutes to 4 hours.
 
 Commit to Up or Down whenever the debate's strongest arguments warrant it; reserve Flat for a genuinely balanced setup. Ground the verdict in the intraday technical, news, and sentiment evidence, and flag the levels that would confirm or flip it.
 

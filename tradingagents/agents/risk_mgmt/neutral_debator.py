@@ -21,7 +21,7 @@ def create_neutral_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
-        prompt = f"""As the Neutral Risk Analyst on an intraday price-forecasting desk, weigh both sides to land on the most CALIBRATED next 1-4 hour forecast — a direction, confidence, and range that the evidence actually supports. Here is the desk's preliminary directional call:
+        prompt = f"""As the Neutral Risk Analyst on an intraday price-forecasting desk, weigh both sides to land on the most CALIBRATED intraday (5m-4h) forecast — a direction, confidence, and range that the evidence actually supports. Here is the desk's preliminary directional call:
 
 {trader_decision}
 

@@ -131,6 +131,28 @@ _INTERVAL_TO_FREQ = {
     "30m": "30min", "60m": "60min", "90m": "90min", "1h": "1h",
 }
 
+# yfinance caps how far back intraday history goes, per interval (in days). A
+# request beyond the cap errors or returns partial data, so the fetch window is
+# clamped to it. Sub-hourly bars (5m/15m/30m) max out at ~60 days; 1h at ~730.
+_INTERVAL_MAX_DAYS = {
+    "1m": 7, "2m": 59, "5m": 59, "15m": 59, "30m": 59, "90m": 59,
+    "60m": 720, "1h": 720,
+}
+
+
+def floor_freq_for(interval: str) -> str:
+    """Pandas floor frequency for a base bar interval (e.g. ``"5m"`` -> ``"5min"``).
+
+    Aligns realized-price lookups and cache-freshness checks to the bar grid.
+    Falls back to hourly for unknown / daily intervals.
+    """
+    return _INTERVAL_TO_FREQ.get(interval, "1h")
+
+
+def max_intraday_days(interval: str) -> int:
+    """Max look-back days yfinance allows for an intraday interval (else 720)."""
+    return _INTERVAL_MAX_DAYS.get(interval, 720)
+
 
 def _intraday_cache_is_stale(
     cached: pd.DataFrame, interval: str, curr_date_dt: pd.Timestamp
@@ -177,14 +199,14 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     interval = config.get("data_interval", "1d")
     curr_date_dt = pd.to_datetime(curr_date)
 
-    # Cache window: 5y for daily. yfinance caps intraday history (~730 days for
-    # 1h bars), so an intraday interval uses a 720-day window. The interval is
-    # part of the cache filename so 1h and 1d frames never collide.
+    # Cache window: 5y for daily. yfinance caps intraday history per interval
+    # (~60 days for 5m/15m/30m, ~730 for 1h), so clamp to the per-interval limit.
+    # The interval is part of the cache filename so frames never collide.
     today_date = pd.Timestamp.today()
     if interval == "1d":
         start_date = today_date - pd.DateOffset(years=5)
     else:
-        start_date = today_date - pd.Timedelta(days=720)
+        start_date = today_date - pd.Timedelta(days=max_intraday_days(interval))
     start_str = start_date.strftime("%Y-%m-%d")
     # yfinance ``end`` is EXCLUSIVE; request tomorrow so today's row is included
     # when curr_date is the current day (#986). Look-ahead is still prevented by

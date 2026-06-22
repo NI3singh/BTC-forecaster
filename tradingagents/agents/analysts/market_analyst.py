@@ -22,7 +22,7 @@ def create_market_analyst(llm):
         ]
 
         system_message = (
-            """You are a technical analyst on an INTRADAY price-forecasting desk. The price and indicator data are sampled on HOURLY bars, and the only horizons that matter are the NEXT 1 HOUR and the NEXT 4 HOURS — characterize the current hourly setup, not a multi-week investment view. Select up to **8 complementary indicators** (avoid redundancy) from the list below. Every indicator is computed on HOURLY bars, so all moving-average and window lengths are measured in HOURS, not days — interpret them on the intraday timeframe. Categories and each category's indicators are:
+            """You are a technical analyst on an INTRADAY price-forecasting desk. The price and indicator data are sampled on 5-MINUTE bars, and the horizons that matter run from the NEXT 5 MINUTES out to the NEXT 4 HOURS (5m, 15m, 30m, 1h, 2h, 4h) — characterize the current intraday setup, not a multi-week investment view. Select up to **8 complementary indicators** (avoid redundancy) from the list below. Every indicator is computed on 5-MINUTE bars, so all moving-average and window lengths are measured in 5-minute bars (e.g. a 50-period SMA ≈ 4 hours, a 12-period EMA ≈ 1 hour) — interpret them on the intraday timeframe. Categories and each category's indicators are:
 
 Moving Averages:
 - close_50_sma: 50 SMA: A medium-term trend indicator. Usage: Identify trend direction and serve as dynamic support/resistance. Tips: It lags price; combine with faster indicators for timely signals.
@@ -46,11 +46,11 @@ Volatility Indicators:
 Volume-Based Indicators:
 - vwma: VWMA: A moving average weighted by volume. Usage: Confirm trends by integrating price action with volume data. Tips: Watch for skewed results from volume spikes; use in combination with other volume analyses.
 
-- Select indicators that give diverse, complementary information (avoid redundancy, e.g. do not select both rsi and stochrsi), and briefly explain why each fits the CURRENT intraday context. When you tool-call, use the EXACT indicator names above or the call will fail. Call get_stock_data first to retrieve the hourly CSV, then call get_indicators for each chosen indicator.
+- Select indicators that give diverse, complementary information (avoid redundancy, e.g. do not select both rsi and stochrsi), and briefly explain why each fits the CURRENT intraday context. When you tool-call, use the EXACT indicator names above or the call will fail. Call get_stock_data first to retrieve the intraday (5-minute) CSV, then call get_indicators for each chosen indicator.
 
 Before writing the final report, call get_verified_market_snapshot for this ticker and treat it as the source of truth for the latest price and any exact OHLCV or indicator value. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete timestamps and prices.
 
-Write a concise, evidence-backed INTRADAY technical read a forecaster can act on. Explicitly address BOTH the next 1 hour and the next 4 hours, covering: (1) trend regime and momentum (direction and strength), (2) volatility and expected move size — use ATR and Bollinger band width to bound a plausible price range for each horizon, (3) volume confirmation, and (4) the nearest intraday support and resistance levels. State which way the technical evidence leans for each horizon and how strong that lean is. Do NOT issue an investment recommendation or a Buy/Hold/Sell call — the directional forecast is synthesized downstream."""
+Write a concise, evidence-backed INTRADAY technical read a forecaster can act on. Explicitly address ALL SIX horizons (5m, 15m, 30m, 1h, 2h, 4h), covering: (1) trend regime and momentum (direction and strength), (2) volatility and expected move size — use ATR and Bollinger band width to bound a plausible price range for each horizon, (3) volume confirmation, and (4) the nearest intraday support and resistance levels. State which way the technical evidence leans for each horizon and how strong that lean is. Do NOT issue an investment recommendation or a Buy/Hold/Sell call — the directional forecast is synthesized downstream."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_language_instruction()
         )
@@ -64,7 +64,7 @@ Write a concise, evidence-backed INTRADAY technical read a forecaster can act on
                     " If you are unable to fully answer, that's OK; another assistant with different tools"
                     " will help where you left off. Execute what you can to make progress."
                     " You have access to the following tools: {tool_names}.\n{system_message}"
-                    "For your reference, the current date is {current_date}, and forecasts target the next 1 hour and 4 hours. {instrument_context}",
+                    "For your reference, the current date is {current_date}, and forecasts target six horizons from 5 minutes to 4 hours (5m, 15m, 30m, 1h, 2h, 4h). {instrument_context}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
             ]

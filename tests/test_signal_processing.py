@@ -91,7 +91,13 @@ class TestParseDirection:
 class TestSignalProcessor:
     def test_returns_direction_from_forecast_markdown(self):
         sp = SignalProcessor()
-        md = "**Primary signal (next 1h): Up**\n\n| Next 1h | Up | $1 | n/a | Medium (60%) |"
+        # A shorter-horizon row with a different direction must not steal the
+        # headline: the 1h primary-signal marker is the source of truth.
+        md = (
+            "**Primary signal (next 1h): Up**\n\n"
+            "| Next 5m | Down | $1 | n/a | Low (50%) |\n"
+            "| Next 1h | Up | $1 | n/a | Medium (60%) |"
+        )
         assert sp.process_signal(md) == "Up"
 
     def test_makes_no_llm_calls(self):

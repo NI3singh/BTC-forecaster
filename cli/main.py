@@ -194,7 +194,7 @@ class MessageBuffer:
                 "fundamentals_report": "Fundamentals Analysis",
                 "investment_plan": "Research Team — Directional Verdict",
                 "trader_investment_plan": "Trader — Preliminary Call",
-                "final_trade_decision": "Intraday Forecast (1h / 4h)",
+                "final_trade_decision": "Intraday Forecast (5m-4h)",
             }
             self.current_report = (
                 f"### {section_titles[latest_section]}\n{latest_content}"
@@ -239,7 +239,7 @@ class MessageBuffer:
 
         # Final Intraday Forecast
         if self.report_sections.get("final_trade_decision"):
-            report_parts.append("## Intraday Forecast (1h / 4h)")
+            report_parts.append("## Intraday Forecast (5m-4h)")
             report_parts.append(f"{self.report_sections['final_trade_decision']}")
 
         self.final_report = "\n\n".join(report_parts) if report_parts else None
@@ -805,7 +805,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             portfolio_dir = save_path / "5_portfolio"
             portfolio_dir.mkdir(exist_ok=True)
             (portfolio_dir / "decision.md").write_text(risk["judge_decision"], encoding="utf-8")
-            sections.append(f"## V. Intraday Forecast (1h / 4h)\n\n### Forecast\n{risk['judge_decision']}")
+            sections.append(f"## V. Intraday Forecast (5m-4h)\n\n### Forecast\n{risk['judge_decision']}")
 
     # Write consolidated report
     header = f"# Intraday Forecast Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
@@ -870,7 +870,7 @@ def display_complete_report(final_state):
 
         # V. Portfolio Manager Decision
         if risk.get("judge_decision"):
-            console.print(Panel("[bold]V. Intraday Forecast (1h / 4h)[/bold]", border_style="green"))
+            console.print(Panel("[bold]V. Intraday Forecast (5m-4h)[/bold]", border_style="green"))
             console.print(Panel(Markdown(risk["judge_decision"]), title="Intraday Forecast", border_style="blue", padding=(1, 2)))
 
 
@@ -1292,7 +1292,7 @@ def run_analysis(checkpoint: bool = False):
     console.print(f"[dim]{analyst_wall_time_tracker.format_summary()}[/dim]")
 
     # Best-effort: log this forecast to the rolling track record so accuracy can
-    # be scored once the 1h/4h horizons elapse. Never blocks or breaks the run.
+    # be scored once each horizon elapses. Never blocks or breaks the run.
     try:
         from tradingagents.forecasting.track_record import record_forecast
         if record_forecast(
@@ -1348,7 +1348,7 @@ def analyze(
 
 @app.command()
 def score():
-    """Resolve elapsed 1h/4h forecasts and print the rolling accuracy track record."""
+    """Resolve elapsed forecasts and print the rolling accuracy track record."""
     from tradingagents.forecasting.track_record import score_and_summarize
     console.print(Markdown(score_and_summarize(DEFAULT_CONFIG)))
 

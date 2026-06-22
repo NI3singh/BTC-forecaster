@@ -18,6 +18,7 @@ so that:
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Literal
 
@@ -56,7 +57,7 @@ class Direction(str, Enum):
     """3-tier directional outcome used by the intraday forecasting agents.
 
     Replaces the investor Buy/Hold/Sell framing for the forecasting pipeline:
-    the question is which way price moves over the next 1-4 hours, not whether
+    the question is which way price moves over the next 5 minutes to 4 hours, not whether
     to take a position. ``Flat`` means inside the fee/noise band (no clear move).
     """
 
@@ -81,7 +82,7 @@ class ResearchPlan(BaseModel):
 
     bias: Direction = Field(
         description=(
-            "The directional bias for the next 1-4 hours. Exactly one of Up / "
+            "The directional bias for the next 5 minutes to 4 hours. Exactly one of Up / "
             "Flat / Down. Reserve Flat for when the debate is genuinely balanced "
             "or price is likely to stay inside the noise band; otherwise commit "
             "to the side with the stronger arguments."
@@ -97,7 +98,7 @@ class ResearchPlan(BaseModel):
     what_to_watch: str = Field(
         description=(
             "Concrete intraday levels, signals, or imminent events the trader "
-            "should watch over the next 1-4 hours, including what would flip the "
+            "should watch over the next 5 minutes to 4 hours, including what would flip the "
             "bias."
         ),
     )
@@ -124,12 +125,12 @@ class TraderProposal(BaseModel):
 
     On the intraday forecasting desk the trader reads the Research Manager's
     directional verdict and the analyst reports, then commits to a preliminary
-    call for the next 1-4 hours: which way, why, and the key intraday level
+    call for the next 5 minutes to 4 hours: which way, why, and the key intraday level
     that matters.
     """
 
     direction: Direction = Field(
-        description="The preliminary directional call for the next 1-4 hours. Exactly one of Up / Flat / Down.",
+        description="The preliminary directional call for the next 5 minutes to 4 hours. Exactly one of Up / Flat / Down.",
     )
     reasoning: str = Field(
         description=(
@@ -236,21 +237,58 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Canonical forecast horizons: (label, minutes ahead). Single source of truth for
+# the Forecast schema fields below, the rendered table (``render_forecast``), the
+# markdown parser and scoring loop (``track_record.py``). Order = display order.
+FORECAST_HORIZONS: list[tuple[str, int]] = [
+    ("5m", 5),
+    ("15m", 15),
+    ("30m", 30),
+    ("1h", 60),
+    ("2h", 120),
+    ("4h", 240),
+]
+
+
 class Forecast(BaseModel):
     """The final intraday price forecast produced by the Portfolio Manager.
 
     Replaces the investor PortfolioDecision for the forecasting pipeline: a
-    per-horizon (next 1h, next 4h) directional call with an approximate price,
-    an expected range, and a confidence, plus the reasons and the levels that
-    would confirm or invalidate it. The numbers are the desk's best estimate;
-    the Stage-5 track-record loop keeps the confidence honest over time.
+    per-horizon (5m, 15m, 30m, 1h, 2h, 4h) directional call with an approximate
+    price, an expected range, and a confidence, plus the reasons and the levels
+    that would confirm or invalidate it. The numbers are the desk's best
+    estimate; the Stage-5 track-record loop keeps the confidence honest over time.
     """
+
+    direction_5m: Direction = Field(description="Direction for the NEXT 5 MINUTES: Up / Flat / Down.")
+    expected_price_5m: float = Field(description="Approximate expected price at the end of the next 5 minutes, in the quote currency.")
+    range_low_5m: float | None = Field(default=None, description="Low end of the expected price range over the next 5 minutes.")
+    range_high_5m: float | None = Field(default=None, description="High end of the expected price range over the next 5 minutes.")
+    confidence_5m: int = Field(ge=0, le=100, description="Confidence (0-100) in the next-5-minute direction call.")
+
+    direction_15m: Direction = Field(description="Direction for the NEXT 15 MINUTES: Up / Flat / Down.")
+    expected_price_15m: float = Field(description="Approximate expected price at the end of the next 15 minutes, in the quote currency.")
+    range_low_15m: float | None = Field(default=None, description="Low end of the expected price range over the next 15 minutes.")
+    range_high_15m: float | None = Field(default=None, description="High end of the expected price range over the next 15 minutes.")
+    confidence_15m: int = Field(ge=0, le=100, description="Confidence (0-100) in the next-15-minute direction call.")
+
+    direction_30m: Direction = Field(description="Direction for the NEXT 30 MINUTES: Up / Flat / Down.")
+    expected_price_30m: float = Field(description="Approximate expected price at the end of the next 30 minutes, in the quote currency.")
+    range_low_30m: float | None = Field(default=None, description="Low end of the expected price range over the next 30 minutes.")
+    range_high_30m: float | None = Field(default=None, description="High end of the expected price range over the next 30 minutes.")
+    confidence_30m: int = Field(ge=0, le=100, description="Confidence (0-100) in the next-30-minute direction call.")
 
     direction_1h: Direction = Field(description="Direction for the NEXT 1 HOUR: Up / Flat / Down.")
     expected_price_1h: float = Field(description="Approximate expected price at the end of the next 1 hour, in the quote currency.")
     range_low_1h: float | None = Field(default=None, description="Low end of the expected price range over the next 1 hour.")
     range_high_1h: float | None = Field(default=None, description="High end of the expected price range over the next 1 hour.")
     confidence_1h: int = Field(ge=0, le=100, description="Confidence (0-100) in the next-1-hour direction call.")
+
+    direction_2h: Direction = Field(description="Direction for the NEXT 2 HOURS: Up / Flat / Down.")
+    expected_price_2h: float = Field(description="Approximate expected price at the end of the next 2 hours, in the quote currency.")
+    range_low_2h: float | None = Field(default=None, description="Low end of the expected price range over the next 2 hours.")
+    range_high_2h: float | None = Field(default=None, description="High end of the expected price range over the next 2 hours.")
+    confidence_2h: int = Field(ge=0, le=100, description="Confidence (0-100) in the next-2-hour direction call.")
 
     direction_4h: Direction = Field(description="Direction for the NEXT 4 HOURS: Up / Flat / Down.")
     expected_price_4h: float = Field(description="Approximate expected price at the end of the next 4 hours, in the quote currency.")
@@ -290,23 +328,46 @@ def _fmt_range(low: float | None, high: float | None) -> str:
     return f"${low:,.0f} - ${high:,.0f}"
 
 
+def _fmt_as_of(as_of_iso: str) -> str:
+    """Format an ISO timestamp as ``YYYY-MM-DD HH:MM UTC`` for display."""
+    try:
+        return datetime.fromisoformat(as_of_iso).strftime("%Y-%m-%d %H:%M UTC")
+    except (ValueError, TypeError):
+        return str(as_of_iso)
+
+
+def render_forecast_anchor(asset: str, as_of_iso: str, spot_price: float) -> str:
+    """One-line baseline header pinning a forecast to the moment it was made.
+
+    Shows the timestamp and the real spot price at forecast time so the output is
+    self-documenting — you can compare it against the live price later.
+    """
+    return (
+        f"**Forecast baseline: {asset} as of {_fmt_as_of(as_of_iso)}, "
+        f"spot ${spot_price:,.2f}**"
+    )
+
+
 def render_forecast(f: Forecast) -> str:
     """Render a Forecast to the markdown the CLI, reports, and signal parser consume.
 
     The leading ``Primary signal (next 1h)`` line is a stable, greppable marker
     the signal processor reads to extract the headline direction.
     """
+    rows = [
+        f"| Next {label} | {getattr(f, f'direction_{label}').value} | "
+        f"${getattr(f, f'expected_price_{label}'):,.2f} | "
+        f"{_fmt_range(getattr(f, f'range_low_{label}'), getattr(f, f'range_high_{label}'))} | "
+        f"{_confidence_band(getattr(f, f'confidence_{label}'))} "
+        f"({getattr(f, f'confidence_{label}')}%) |"
+        for label, _ in FORECAST_HORIZONS
+    ]
     parts = [
         f"**Primary signal (next 1h): {f.direction_1h.value}**",
         "",
         "| Horizon | Direction | Approx. price | Expected range | Confidence |",
         "| --- | --- | --- | --- | --- |",
-        f"| Next 1h | {f.direction_1h.value} | ${f.expected_price_1h:,.2f} | "
-        f"{_fmt_range(f.range_low_1h, f.range_high_1h)} | "
-        f"{_confidence_band(f.confidence_1h)} ({f.confidence_1h}%) |",
-        f"| Next 4h | {f.direction_4h.value} | ${f.expected_price_4h:,.2f} | "
-        f"{_fmt_range(f.range_low_4h, f.range_high_4h)} | "
-        f"{_confidence_band(f.confidence_4h)} ({f.confidence_4h}%) |",
+        *rows,
         "",
         f"**Why:** {f.reasons}",
     ]

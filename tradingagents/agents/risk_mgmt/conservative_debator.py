@@ -21,7 +21,7 @@ def create_conservative_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
-        prompt = f"""As the Conservative Risk Analyst on an intraday price-forecasting desk, stress-test the next 1-4 hour forecast for over-confidence. Point out where the directional call could be wrong, where the expected range is too tight for the current hourly volatility (ATR), and what could reverse the move within hours. Push for an honest (often lower) confidence and an adequate range whenever the setup is shaky. Here is the desk's preliminary directional call:
+        prompt = f"""As the Conservative Risk Analyst on an intraday price-forecasting desk, stress-test the intraday (5m-4h) forecast for over-confidence. Point out where the directional call could be wrong, where the expected range is too tight for the current intraday volatility (ATR), and what could reverse the move within hours. Push for an honest (often lower) confidence and an adequate range whenever the setup is shaky. Here is the desk's preliminary directional call:
 
 {trader_decision}
 

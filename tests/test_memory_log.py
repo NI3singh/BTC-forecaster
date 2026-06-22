@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from tests._forecast_helpers import make_forecast
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
 from tradingagents.agents.schemas import Direction, Forecast
 from tradingagents.agents.utils.memory import TradingMemoryLog
@@ -89,11 +90,10 @@ def _structured_pm_llm(captured: dict, decision: Forecast | None = None):
     prompt and returns a real Forecast (so render_forecast works).
     """
     if decision is None:
-        decision = Forecast(
-            direction_1h=Direction.FLAT, expected_price_1h=100.0,
-            range_low_1h=99.0, range_high_1h=101.0, confidence_1h=50,
-            direction_4h=Direction.FLAT, expected_price_4h=100.0,
-            range_low_4h=98.0, range_high_4h=102.0, confidence_4h=50,
+        decision = make_forecast(
+            direction=Direction.FLAT,
+            expected_price_1h=100.0, range_low_1h=99.0, range_high_1h=101.0, confidence_1h=50,
+            expected_price_4h=100.0, range_low_4h=98.0, range_high_4h=102.0, confidence_4h=50,
             reasons="Balanced; neither side carried the debate.",
         )
     structured = MagicMock()
@@ -712,7 +712,7 @@ class TestPortfolioManagerInjection:
         consumers (memory log, signal processor, CLI display) can parse
         without any extra LLM call."""
         captured = {}
-        decision = Forecast(
+        decision = make_forecast(
             direction_1h=Direction.UP, expected_price_1h=65950.0,
             range_low_1h=65700.0, range_high_1h=66150.0, confidence_1h=62,
             direction_4h=Direction.DOWN, expected_price_4h=65400.0,

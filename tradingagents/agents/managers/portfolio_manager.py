@@ -10,7 +10,7 @@ back gracefully to free-text generation.
 
 from __future__ import annotations
 
-from tradingagents.agents.schemas import Forecast, render_forecast
+from tradingagents.agents.schemas import Forecast, render_forecast, render_forecast_anchor
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
@@ -40,14 +40,14 @@ def create_portfolio_manager(llm):
             else ""
         )
 
-        prompt = f"""As the Portfolio Manager on an intraday price-forecasting desk, synthesize the risk analysts' debate and the desk's analysis into the FINAL price forecast for {company_name}, covering the next 1 hour and the next 4 hours.
+        prompt = f"""As the Portfolio Manager on an intraday price-forecasting desk, synthesize the risk analysts' debate and the desk's analysis into the FINAL price forecast for {company_name}, covering all six horizons: 5m, 15m, 30m, 1h, 2h and 4h.
 
 {instrument_context}
 
-For EACH horizon (next 1h and next 4h) provide:
+For EACH of the six horizons (5m, 15m, 30m, 1h, 2h, 4h) provide:
 - a direction (Up / Flat / Down),
 - an approximate expected price in the quote currency,
-- an expected price range (low and high), sized from the hourly ATR / volatility,
+- an expected price range (low and high), sized from the intraday ATR / volatility and widening with the horizon,
 - a confidence from 0-100 — be honest: reserve high confidence for genuinely strong setups; a near-coin-flip is ~50.
 
 Then give the reasons (cite the concrete drivers: momentum/MACD, ATR-implied range, key levels reclaimed or lost, breaking news/sentiment), the key intraday support/resistance levels, and what price action would invalidate the forecast. Anchor your expected prices and ranges on the latest verified price.
@@ -70,6 +70,22 @@ Ground every number in the analysts' evidence; do not fabricate precision.{get_l
             render_forecast,
             "Portfolio Manager",
         )
+
+        # Pin the forecast to its real baseline (timestamp + spot price at
+        # forecast time) so the output is self-documenting. Best-effort; never
+        # blocks the forecast if the data layer is unavailable.
+        trade_date = state.get("trade_date")
+        if trade_date:
+            # Imported lazily to avoid an agents <-> forecasting import cycle.
+            from tradingagents.forecasting.track_record import forecast_anchor
+            anchor = forecast_anchor(company_name, trade_date)
+            if anchor:
+                as_of_iso, spot = anchor
+                final_trade_decision = (
+                    render_forecast_anchor(company_name, as_of_iso, spot)
+                    + "\n\n"
+                    + final_trade_decision
+                )
 
         new_risk_debate_state = {
             "judge_decision": final_trade_decision,

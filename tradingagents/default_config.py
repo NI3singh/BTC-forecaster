@@ -48,8 +48,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
-    # Append-only JSONL log of every 1h/4h forecast + its realized outcome,
-    # used by the forecast track-record / scoring loop (the honesty layer).
+    # Append-only JSONL log of every intraday multi-horizon forecast + its
+    # realized outcome, used by the track-record / scoring loop (honesty layer).
     "forecast_log_path": os.getenv("TRADINGAGENTS_FORECAST_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "forecasts", "track_record.jsonl")),
     # Optional cap on the number of resolved memory log entries. When set,
     # the oldest resolved entries are pruned once this limit is exceeded.
@@ -87,14 +87,15 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "analyst_concurrency_limit": 1,
     # Intraday forecasting configuration
     # ``data_interval`` is the base OHLCV bar used for both price and indicator
-    # fetches. "1h" powers the intraday (next-1h / next-4h) forecaster; "1d"
-    # restores the original daily behavior. yfinance intraday history is limited
-    # (~730 days for 1h bars), which the data layer handles by clamping the
-    # fetch window when an intraday interval is selected.
-    "data_interval": "1h",
-    # Horizons, in hours, that the forecaster predicts (1 = next hour, 4 = next
-    # 4 hours). Consumed by the forecast output schema and the scoring loop.
-    "forecast_horizons": [1, 4],
+    # fetches. "5m" powers the intraday multi-horizon (5m / 15m / 30m / 1h / 2h /
+    # 4h) forecaster; "1d" restores the original daily behavior. yfinance caps
+    # sub-hourly history (~60 days for 5m/15m/30m bars, ~730 for 1h), which the
+    # data layer handles by clamping the fetch window per interval.
+    "data_interval": "5m",
+    # Forecast horizons in MINUTES (5m, 15m, 30m, 1h, 2h, 4h). The runtime source
+    # of truth is FORECAST_HORIZONS in tradingagents/agents/schemas.py; this key
+    # mirrors it for configurability/documentation.
+    "forecast_horizons": [5, 15, 30, 60, 120, 240],
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

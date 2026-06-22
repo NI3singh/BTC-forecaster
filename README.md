@@ -2,7 +2,7 @@
 ██████╗  ████████╗  ██████╗
 ██╔══██╗ ╚══██╔══╝ ██╔════╝     ·  F O R E C A S T E R
 ██████╔╝    ██║    ██║
-██╔══██╗    ██║    ██║          next-1h & next-4h BTC-USD trend forecasts
+██╔══██╗    ██║    ██║          BTC-USD forecasts: 5m · 15m · 30m · 1h · 2h · 4h
 ██████╔╝    ██║    ╚██████╗     direction · price · range · confidence · why
 ╚═════╝     ╚═╝     ╚═════╝
 ```
@@ -11,8 +11,8 @@
 
 <p align="center">
   <b>Honest intraday BTC-USD trend forecasting.</b><br>
-  A multi-agent system that predicts whether BTC goes <b>Up / Flat / Down</b> over the
-  <b>next 1 hour</b> and <b>next 4 hours</b> — with an approximate price, a price range,
+  A multi-agent system that predicts whether BTC goes <b>Up / Flat / Down</b> across
+  <b>six horizons</b> — 5m, 15m, 30m, 1h, 2h, 4h — with an approximate price, a price range,
   a confidence score, plain-English reasons, and a <b>self-scoring track record</b> that
   grades every forecast against what actually happened.
 </p>
@@ -34,7 +34,7 @@ The upstream project answers *"should I **buy/hold/sell** this stock over the ne
 
 We kept the whole agent pipeline and **repurposed it into an intraday price forecaster**. Instead of an investment rating, it now answers a **specific, checkable** question:
 
-> **"Which way will BTC-USD move over the next 1 hour and next 4 hours, to roughly what price, and why?"**
+> **"Which way will BTC-USD move over the next 5 minutes to 4 hours (5m, 15m, 30m, 1h, 2h, 4h), to roughly what price, and why?"**
 
 The guiding rule of this project is **real, not fake**: every forecast is logged and later **graded against the realized price**, so the accuracy you see is measured — never claimed.
 
@@ -44,8 +44,8 @@ The guiding rule of this project is **real, not fake**: every forecast is logged
 |---|---|---|
 | **Goal** | Investment decision | Price-trend **forecast** |
 | **Output** | `Buy / Hold / Sell` rating | `Up / Flat / Down` + price + range + confidence + reasons |
-| **Horizon** | ~1–2 weeks | **Next 1 hour** & **next 4 hours** |
-| **Data** | Daily bars | **Hourly (intraday)** bars |
+| **Horizon** | ~1–2 weeks | **Six horizons:** 5m, 15m, 30m, 1h, 2h, 4h |
+| **Data** | Daily bars | **5-minute (intraday)** bars |
 | **Focus** | Any stock / ETF / crypto | **BTC-USD** (intraday) |
 | **Self-check** | Decision-reflection memo | **Forecast track record** — scored vs. realized price |
 | **You are seen as** | An investor | A **trader / forecaster** |
@@ -55,17 +55,17 @@ The agent topology is **unchanged** — only the data layer, the prompts, the fi
 ## How it works
 
 ```
-   Hourly BTC-USD OHLCV + indicators
+   5-minute BTC-USD OHLCV + indicators
                 │
    ┌────────────▼─────────────┐
    │  Analyst team            │  technical · news · sentiment · (fundamentals = context)
    └────────────┬─────────────┘
    ┌────────────▼─────────────┐
-   │  Bull vs. Bear debate    │  argue the next 1–4h direction
+   │  Bull vs. Bear debate    │  argue direction across 5m–4h
    └────────────┬─────────────┘
    ┌────────────▼─────────────┐
    │  Trader → Risk team →    │
-   │  Final forecaster        │  emits the Forecast (1h + 4h)
+   │  Final forecaster        │  emits the Forecast (all 6 horizons)
    └────────────┬─────────────┘
                 ▼
    Forecast: direction · price · range · confidence · reasons   →  logged to the track record
@@ -81,13 +81,17 @@ The agent topology is **unchanged** — only the data layer, the prompts, the fi
 Primary signal (next 1h): Down
 
   Horizon   Direction   Approx. price   Expected range       Confidence
-  Next 1h   Down        $64,781.00      $64,500 – $65,340    Medium (60%)
-  Next 4h   Down        $63,905.00      $63,900 – $65,900    Medium (60%)
+  Next 5m   Down        $65,540.00      $65,490 – $65,610    Medium (58%)
+  Next 15m  Down        $65,470.00      $65,360 – $65,620    Medium (57%)
+  Next 30m  Down        $65,360.00      $65,180 – $65,600    Medium (56%)
+  Next 1h   Down        $65,180.00      $64,900 – $65,520    Medium (60%)
+  Next 2h   Down        $64,820.00      $64,300 – $65,520    Low (54%)
+  Next 4h   Down        $64,400.00      $63,700 – $65,420    Low (52%)
 
-Why:   BTC is breaking down with no buy-side absorption below $65,000; VWAP sits
+Why:   BTC is breaking down with no buy-side absorption below $65,500; VWAP sits
        above spot and RSI at 47 leaves room for downside continuation.
-Key levels:            support $64,781 / $63,905 · resistance $65,340 / $65,813
-What would invalidate: a 1h close back above $65,900.
+Key levels:            support $65,180 / $64,400 · resistance $65,520 / $65,813
+What would invalidate: a 1h close back above $65,620.
 ```
 
 Later, once the horizons have elapsed, **`score`** grades every logged forecast against the **real** BTC price:
@@ -96,8 +100,12 @@ Later, once the horizons have elapsed, **`score`** grades every logged forecast 
 Forecast track record (N forecasts logged)
 
   Horizon   Resolved   Directional acc.   Range coverage   Mean abs % err
-  1h        1          100%               0%               1%
-  4h        1          100%               100%             1%
+  5m        12         67%                58%              0%
+  15m       12         67%                75%              0%
+  30m       11         64%                73%              0%
+  1h        10         70%                80%              1%
+  2h        9          56%                89%              1%
+  4h        8          63%                100%             1%
 ```
 
 > A single forecast proves nothing — `100%` on one sample is a coin flip that landed. The track record only becomes meaningful after **dozens** of forecasts across different conditions. That's the whole point of `score`.
@@ -127,7 +135,7 @@ export DEEPSEEK_API_KEY=...     # DeepSeek
 #    OpenAI-compatible server are also supported (inherited from TradingAgents).
 ```
 
-Or copy `.env.example` to `.env` and fill in your keys. Market data (BTC-USD hourly OHLCV) comes from Yahoo Finance and needs no key.
+Or copy `.env.example` to `.env` and fill in your keys. Market data (BTC-USD 5-minute OHLCV) comes from Yahoo Finance and needs no key.
 
 ## Usage
 
@@ -138,7 +146,7 @@ There are **two commands** — make forecasts now, grade them later.
 #    AND silently logs it to the track record.
 python -m cli.main analyze          # or the installed alias:  tradingagents analyze
 
-# 2) ...wait for the horizon to pass (1h / 4h)...
+# 2) ...wait for the horizon to pass (5m … 4h)...
 
 # 3) GRADE all logged forecasts against the realized price.
 python -m cli.main score            # or:  tradingagents score
@@ -154,8 +162,8 @@ Forecasting behavior is set in `tradingagents/default_config.py` (all keys also 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `data_interval` | `"1h"` | Base OHLCV bar. `"1h"` = intraday forecaster; `"1d"` = original daily behavior. |
-| `forecast_horizons` | `[1, 4]` | Horizons in hours the forecaster predicts and scores. |
+| `data_interval` | `"5m"` | Base OHLCV bar. `"5m"` = intraday multi-horizon forecaster; `"1d"` = original daily behavior. |
+| `forecast_horizons` | `[5, 15, 30, 60, 120, 240]` | Horizons in **minutes** the forecaster predicts and scores (5m … 4h). |
 | `forecast_log_path` | `~/.tradingagents/forecasts/track_record.jsonl` | Append-only log of every forecast + its graded outcome. |
 
 You can also configure the LLM provider, models, and debate rounds — see `default_config.py`.
@@ -164,8 +172,8 @@ You can also configure the LLM provider, models, and debate rounds — see `defa
 
 This project is staged so each layer is **proven before the next is built**:
 
-- **v1 — agent-based forecaster (this repo, now).** Hourly data + the reframed agent pipeline emit explained 1h/4h forecasts; the `score` loop measures real accuracy.
-- **v2 — the quantitative brain (planned).** Fine-tune **Kronos** on BTC hourly data to produce the actual probabilities/price/range; agents shift to explaining and sanity-checking the numbers. Ships only if it beats simple baselines **net of fees**.
+- **v1 — agent-based forecaster (this repo, now).** 5-minute data + the reframed agent pipeline emit explained 5m–4h forecasts; the `score` loop measures real accuracy.
+- **v2 — the quantitative brain (planned).** Fine-tune **Kronos** on BTC intraday data to produce the actual probabilities/price/range; agents shift to explaining and sanity-checking the numbers. Ships only if it beats simple baselines **net of fees**.
 - **v3 — the forecast-delivery product (planned).** The full agentic layer wraps the proven model into a polished, explained forecast service.
 
 ## Disclaimer

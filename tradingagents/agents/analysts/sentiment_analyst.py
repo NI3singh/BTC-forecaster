@@ -85,7 +85,7 @@ def create_sentiment_analyst(llm):
                     "system",
                     "You are a helpful AI assistant on an intraday price-forecasting desk, collaborating with other assistants."
                     "\n{system_message}\n"
-                    "For your reference, the current date is {current_date}, and forecasts target the next 1 hour and 4 hours. {instrument_context}",
+                    "For your reference, the current date is {current_date}, and forecasts target six horizons from 5 minutes to 4 hours (5m, 15m, 30m, 1h, 2h, 4h). {instrument_context}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
             ]
@@ -126,7 +126,7 @@ def _build_system_message(
     reddit_block: str,
 ) -> str:
     """Assemble the sentiment-analyst system message with structured data blocks."""
-    return f"""You are a financial market sentiment analyst on an INTRADAY price-forecasting desk. The forecast targets the next 1 hour and 4 hours, so weight the most RECENT sentiment shifts most heavily and call out anything that changed in the last day. Produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on three complementary data sources that have already been collected for you.
+    return f"""You are a financial market sentiment analyst on an INTRADAY price-forecasting desk. The forecast targets six horizons from 5 minutes to 4 hours, so weight the most RECENT sentiment shifts most heavily and call out anything that changed in the last day. Produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on three complementary data sources that have already been collected for you.
 
 ## Data sources (pre-fetched, in this prompt)
 

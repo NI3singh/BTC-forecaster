@@ -1,4 +1,4 @@
-"""Forecast track record: log every 1h/4h forecast and score it once the horizon elapses.
+"""Forecast track record: log every intraday multi-horizon forecast and score it as each horizon elapses.
 
 This is the honesty layer (and the eventual sales proof): an append-only JSONL
 log of every forecast, resolved against the realized hourly close, with a rolling
@@ -19,8 +19,11 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# Horizon label -> hours ahead. Mirrors config["forecast_horizons"] = [1, 4].
-HORIZON_HOURS: dict[str, int] = {"1h": 1, "4h": 4}
+from tradingagents.agents.schemas import FORECAST_HORIZONS
+
+# Horizon label -> minutes ahead, derived from the canonical FORECAST_HORIZONS
+# (schemas.py) so the schema, renderer, parser, and scorer never drift apart.
+HORIZON_MINUTES: dict[str, int] = dict(FORECAST_HORIZONS)
 
 # A realized move smaller than this fraction of the entry price counts as "Flat".
 DEADBAND = 0.001  # 0.1%, ~ round-trip fees
@@ -28,7 +31,7 @@ DEADBAND = 0.001  # 0.1%, ~ round-trip fees
 # One rendered forecast table row, e.g.
 #   | Next 1h | Up | $65,950.00 | $65,700 - $66,150 | Medium (62%) |
 _ROW_RE = re.compile(
-    r"\|\s*Next\s*(?P<h>\d+h)\s*\|\s*(?P<dir>Up|Flat|Down)\s*\|\s*"
+    r"\|\s*Next\s*(?P<h>\d+[mh])\s*\|\s*(?P<dir>Up|Flat|Down)\s*\|\s*"
     r"\$?(?P<price>[\d,]+\.?\d*)\s*\|\s*(?P<range>[^|]+?)\s*\|\s*"
     r"[A-Za-z]+\s*\((?P<conf>\d+)%\)\s*\|",
     re.IGNORECASE,
@@ -134,10 +137,10 @@ class ForecastTrackRecord:
             for h, p in r.get("horizons", {}).items():
                 if p.get("realized_price") is not None:
                     continue
-                hours = HORIZON_HOURS.get(h)
-                if hours is None:
+                minutes = HORIZON_MINUTES.get(h)
+                if minutes is None:
                     continue
-                target = (datetime.fromisoformat(r["as_of"]) + timedelta(hours=hours)).isoformat()
+                target = (datetime.fromisoformat(r["as_of"]) + timedelta(minutes=minutes)).isoformat()
                 realized = price_at(r["asset"], target)
                 if realized is None:
                     continue
@@ -156,7 +159,7 @@ class ForecastTrackRecord:
         """Aggregate resolved horizons into per-horizon accuracy stats."""
         records = self._load()
         by_horizon: dict[str, dict] = {}
-        for h in HORIZON_HOURS:
+        for h, _ in FORECAST_HORIZONS:
             rows = [r["horizons"][h] for r in records
                     if h in r.get("horizons", {})
                     and r["horizons"][h].get("realized_price") is not None]
@@ -213,23 +216,38 @@ def _track_path(config: dict | None) -> str | None:
     return cfg.get("forecast_log_path") or get_config().get("forecast_log_path")
 
 
-def record_forecast(config: dict | None, asset: str, as_of_date: str,
-                    forecast_markdown: str, model_version: str = "agents-v1-no-kronos") -> bool:
-    """Parse a rendered forecast and log it with the as_of spot price. Never raises."""
+def forecast_anchor(asset: str, as_of_date: str) -> tuple[str, float] | None:
+    """Return ``(as_of_iso, spot_price)`` from the latest bar at/before ``as_of_date``.
+
+    The spot is the real close used as the forecast baseline (and logged as the
+    scoring entry), so the displayed anchor and the logged entry always agree.
+    Best-effort: returns ``None`` instead of raising.
+    """
     try:
         import pandas as pd
 
         from tradingagents.dataflows.stockstats_utils import load_ohlcv
+        df = load_ohlcv(asset, as_of_date)
+        if df is None or df.empty:
+            return None
+        last = df.iloc[-1]
+        return pd.to_datetime(last["Date"]).isoformat(), float(last["Close"])
+    except Exception:
+        return None
+
+
+def record_forecast(config: dict | None, asset: str, as_of_date: str,
+                    forecast_markdown: str, model_version: str = "agents-v1-no-kronos") -> bool:
+    """Parse a rendered forecast and log it with the as_of spot price. Never raises."""
+    try:
         preds = parse_forecast_markdown(forecast_markdown)
         path = _track_path(config)
         if not preds or not path:
             return False
-        df = load_ohlcv(asset, as_of_date)
-        if df is None or df.empty:
+        anchor = forecast_anchor(asset, as_of_date)
+        if anchor is None:
             return False
-        last = df.iloc[-1]
-        as_of_iso = pd.to_datetime(last["Date"]).isoformat()
-        current_price = float(last["Close"])
+        as_of_iso, current_price = anchor
         return ForecastTrackRecord(path).log(
             asset, as_of_iso, preds, current_price, model_version
         )
@@ -238,11 +256,15 @@ def record_forecast(config: dict | None, asset: str, as_of_date: str,
 
 
 def build_price_at() -> Callable[[str, str], float | None]:
-    """Realized-price lookup backed by the hourly data layer (per-asset cached)."""
+    """Realized-price lookup backed by the intraday data layer (per-asset cached)."""
     import pandas as pd
 
-    from tradingagents.dataflows.stockstats_utils import load_ohlcv
+    from tradingagents.dataflows.config import get_config
+    from tradingagents.dataflows.stockstats_utils import floor_freq_for, load_ohlcv
     cache: dict[str, object] = {}
+    # Floor targets to the base bar size so sub-hourly horizons (5m/15m/30m)
+    # resolve against the correct bar — a plain hour floor would misread them.
+    freq = floor_freq_for(get_config().get("data_interval", "1h"))
 
     def price_at(asset: str, target_iso: str) -> float | None:
         try:
@@ -253,7 +275,7 @@ def build_price_at() -> Callable[[str, str], float | None]:
                 d = d.assign(_ts=pd.to_datetime(d["Date"])).set_index("_ts").sort_index()
                 cache[asset] = d
                 df = d
-            target = pd.to_datetime(target_iso).floor("h")
+            target = pd.to_datetime(target_iso).floor(freq)
             prior = df[df.index <= target]
             later = df[df.index > target]
             # Only score once the horizon has actually elapsed (a later bar exists).

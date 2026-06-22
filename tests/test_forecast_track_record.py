@@ -2,7 +2,8 @@
 
 import pytest
 
-from tradingagents.agents.schemas import Direction, Forecast, render_forecast
+from tests._forecast_helpers import make_forecast
+from tradingagents.agents.schemas import Direction, render_forecast
 from tradingagents.forecasting.track_record import (
     ForecastTrackRecord,
     parse_forecast_markdown,
@@ -11,21 +12,20 @@ from tradingagents.forecasting.track_record import (
 
 
 def _forecast_md():
-    f = Forecast(
+    f = make_forecast(
         direction_1h=Direction.UP, expected_price_1h=65950.0,
         range_low_1h=65700.0, range_high_1h=66150.0, confidence_1h=62,
         direction_4h=Direction.DOWN, expected_price_4h=65400.0,
         range_low_4h=64900.0, range_high_4h=65900.0, confidence_4h=48,
-        reasons="MACD turned up; ATR ~250/hr.",
     )
     return render_forecast(f)
 
 
 @pytest.mark.unit
 class TestParseForecastMarkdown:
-    def test_parses_both_horizons(self):
+    def test_parses_all_horizons(self):
         preds = parse_forecast_markdown(_forecast_md())
-        assert set(preds) == {"1h", "4h"}
+        assert set(preds) == {"5m", "15m", "30m", "1h", "2h", "4h"}
         assert preds["1h"]["direction"] == "Up"
         assert preds["1h"]["expected_price"] == 65950.0
         assert preds["1h"]["range_low"] == 65700.0
@@ -82,6 +82,22 @@ class TestForecastTrackRecord:
         assert s["1h"]["directional_accuracy"] == 1.0  # predicted Up, realized Up
         assert s["1h"]["range_coverage"] == 1.0  # 66000 within 65700-66150
         assert s["4h"]["resolved"] == 0  # not elapsed
+
+    def test_resolve_scores_minute_horizon(self, tmp_path):
+        # Sub-hourly horizons must resolve via timedelta(minutes=...): the 5m
+        # target is as_of + 5 minutes (05:05), not an hour-floored 05:00.
+        tr = ForecastTrackRecord(tmp_path / "tr.jsonl")
+        preds = parse_forecast_markdown(_forecast_md())
+        tr.log("BTC-USD", "2026-06-17T05:00:00", preds, current_price=65000.0)
+
+        def price_at(asset, target_iso):
+            return 65200.0 if target_iso.startswith("2026-06-17T05:05") else None
+
+        assert tr.resolve(price_at) == 1
+        s = tr.summary()["by_horizon"]
+        assert s["5m"]["resolved"] == 1
+        assert s["5m"]["directional_accuracy"] == 1.0  # default Up, realized up
+        assert s["15m"]["resolved"] == 0  # +15m not elapsed
 
     def test_resolve_marks_wrong_direction(self, tmp_path):
         tr = ForecastTrackRecord(tmp_path / "tr.jsonl")
