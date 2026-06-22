@@ -307,9 +307,10 @@ class ForecastTrackRecord:
             "majority": majority_count / n,
         }
 
-    def summary(self) -> dict:
+    def summary(self, calibrator=None) -> dict:
         """Aggregate resolved horizons into per-horizon accuracy, calibration, and
-        skill-vs-baseline stats."""
+        skill-vs-baseline stats. When ``calibrator`` (a CalibrationMap) is given,
+        also report the calibrated Brier score per horizon."""
         records = self._load()
         prev_entry = self._prev_entry_map(records)
         by_horizon: dict[str, dict] = {}
@@ -339,6 +340,15 @@ class ForecastTrackRecord:
             calibration_gap = (
                 mean_conf - dir_acc if (mean_conf is not None and dir_acc is not None) else None
             )
+            brier_calibrated = None
+            if calibrator is not None and not calibrator.is_empty():
+                cal_pairs = [
+                    (calibrator.calibrate(x["confidence"], h) / 100.0,
+                     1.0 if x["direction_correct"] else 0.0)
+                    for x in dir_rows if x.get("confidence") is not None
+                ]
+                if cal_pairs:
+                    brier_calibrated = sum((p - o) ** 2 for p, o in cal_pairs) / len(cal_pairs)
 
             baselines = self._baseline_accuracies(recs, h, prev_entry)
             valid = {k: v for k, v in baselines.items() if v is not None}
@@ -381,6 +391,7 @@ class ForecastTrackRecord:
                     if err_rows else None
                 ),
                 "brier": brier,
+                "brier_calibrated": brier_calibrated,
                 "mean_confidence": mean_conf,
                 "calibration_gap": calibration_gap,
                 "reliability": _reliability_bins(conf_pairs),
@@ -397,8 +408,8 @@ class ForecastTrackRecord:
             }
         return {"total_forecasts": len(records), "by_horizon": by_horizon}
 
-    def summary_markdown(self) -> str:
-        s = self.summary()
+    def summary_markdown(self, calibrator=None) -> str:
+        s = self.summary(calibrator)
 
         def pct(v):
             return "n/a" if v is None else f"{v * 100:.0f}%"
@@ -419,7 +430,11 @@ class ForecastTrackRecord:
             return f"{pct(st['best_baseline_accuracy'])} ({st['best_baseline']})"
 
         def brier_cell(st):
-            return "n/a" if st["brier"] is None else f"{st['brier']:.3f}"
+            if st["brier"] is None:
+                return "n/a"
+            if st.get("brier_calibrated") is not None:
+                return f"{st['brier']:.3f}→{st['brier_calibrated']:.3f}"
+            return f"{st['brier']:.3f}"
 
         def committed_cell(st):
             if st["committed_rate"] is None:
@@ -603,7 +618,10 @@ def score_and_summarize(config: dict | None) -> str:
     base = (config or {}).get("forecast_deadband_base", DEADBAND)
     tr = ForecastTrackRecord(path)
     tr.resolve(build_price_at(), deadband_base=base)
-    return tr.summary_markdown()
+    # Re-fit the confidence calibration map on RAW logged confidence and show the
+    # calibrated Brier alongside the raw one (proves whether the map helps).
+    from tradingagents.forecasting.calibration import fit_and_save
+    return tr.summary_markdown(calibrator=fit_and_save(config))
 
 
 def forecast_feedback_block(config: dict | None = None) -> str:

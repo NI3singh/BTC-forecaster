@@ -1303,6 +1303,20 @@ def run_analysis(checkpoint: bool = False):
     except Exception:
         pass
 
+    # Display calibrated confidence. The forecast was logged with RAW confidence
+    # above, so the calibration map never trains on its own output. Best-effort and
+    # a no-op until a horizon has enough resolved history to earn a map.
+    try:
+        from tradingagents.forecasting.calibration import calibrate_markdown, load_map
+        cmap = load_map(config)
+        if not cmap.is_empty():
+            final_state["final_trade_decision"] = calibrate_markdown(
+                final_state.get("final_trade_decision", ""), cmap
+            )
+            console.print("[dim]✓ Confidence calibrated to your track record.[/dim]")
+    except Exception:
+        pass
+
     # Prompt to save report
     save_choice = typer.prompt("Save report?", default="Y").strip().upper()
     if save_choice in ("Y", "YES", ""):
