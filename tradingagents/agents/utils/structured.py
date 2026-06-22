@@ -52,6 +52,7 @@ def invoke_structured_or_freetext(
     prompt: Any,
     render: Callable[[T], str],
     agent_name: str,
+    post_process: Callable[[T], T] | None = None,
 ) -> str:
     """Run the structured call and render to markdown; fall back to free-text on any failure.
 
@@ -59,10 +60,16 @@ def invoke_structured_or_freetext(
     invocations, a list of message dicts for chat models that take that
     shape). The same value is forwarded to the free-text path so the
     fallback sees the same input the structured call did.
+
+    ``post_process``, when given, transforms the typed result before rendering
+    (e.g. overriding LLM-guessed ranges with a deterministic volatility band). It
+    runs only on the structured path; the free-text fallback has no typed object.
     """
     if structured_llm is not None:
         try:
             result = structured_llm.invoke(prompt)
+            if post_process is not None:
+                result = post_process(result)
             return render(result)
         except Exception as exc:
             logger.warning(

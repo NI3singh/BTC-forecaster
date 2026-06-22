@@ -96,6 +96,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # of truth is FORECAST_HORIZONS in tradingagents/agents/schemas.py; this key
     # mirrors it for configurability/documentation.
     "forecast_horizons": [5, 15, 30, 60, 120, 240],
+    # Flat-band at the 5m reference horizon, as a fraction of entry price (0.001 =
+    # 0.1%, ~ round-trip fees). The scorer scales it with sqrt(time) so "Flat"
+    # means "inside the noise" consistently across 5m..4h. Raise to treat more
+    # near-zero moves as Flat; lower to grade direction more strictly.
+    "forecast_deadband_base": 0.001,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

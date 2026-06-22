@@ -1353,5 +1353,22 @@ def score():
     console.print(Markdown(score_and_summarize(DEFAULT_CONFIG)))
 
 
+@app.command()
+def backtest(
+    asset: str = typer.Option("BTC-USD", help="Ticker to backtest the baselines on."),
+    step: int = typer.Option(
+        12, help="Bars between anchor points (12 = hourly anchors on 5m data)."
+    ),
+):
+    """Replay history to score the naive baselines at each horizon (no agent calls).
+
+    Establishes the no-skill performance floor the forecaster must beat, in seconds,
+    without waiting for live horizons to elapse.
+    """
+    from tradingagents.forecasting.backtest import backtest_markdown, run_backtest
+    results = run_backtest(asset, DEFAULT_CONFIG, step=step)
+    console.print(Markdown(backtest_markdown(asset, results)))
+
+
 if __name__ == "__main__":
     app()
