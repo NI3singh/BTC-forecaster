@@ -4,6 +4,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# The quant brain needs the optional [quant] extra (scikit-learn + joblib). Skip
+# the whole module cleanly when it isn't installed instead of erroring at import.
+pytest.importorskip("joblib")
+pytest.importorskip("sklearn")
+
 from tradingagents.forecasting.quant.features import build_dataset, make_features, make_label
 from tradingagents.forecasting.quant.forecaster import (
     _direction,

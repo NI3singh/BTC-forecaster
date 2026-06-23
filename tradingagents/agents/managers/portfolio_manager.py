@@ -108,6 +108,17 @@ def create_portfolio_manager(llm):
         def _post_process(forecast):
             if range_pp is not None:
                 forecast = range_pp(forecast)
+            # Make each direction agree with its expected price vs spot, using the
+            # same horizon-scaled deadband the scorer applies, so the table is
+            # never self-contradictory ("Up" with a price below spot). Runs BEFORE
+            # fusion, which deliberately owns direction from the quant's edge.
+            if anchor:
+                from tradingagents.forecasting.track_record import (
+                    reconcile_forecast_directions,
+                )
+                forecast = reconcile_forecast_directions(
+                    forecast, anchor["spot"], deadband_base=cfg.get("forecast_deadband_base")
+                )
             if quant_probs:
                 from tradingagents.forecasting.fusion import fuse_forecast
                 forecast, sbs = fuse_forecast(
@@ -116,15 +127,15 @@ def create_portfolio_manager(llm):
                 fusion_sidebyside[:] = sbs
             return forecast
 
-        post_process = _post_process if (range_pp is not None or quant_probs) else None
+        post_process = _post_process if (anchor or range_pp is not None or quant_probs) else None
 
         prompt = f"""As the Portfolio Manager on an intraday price-forecasting desk, synthesize the risk analysts' debate and the desk's analysis into the FINAL price forecast for {company_name}, covering all six horizons: 5m, 15m, 30m, 1h, 2h and 4h.
 
 {instrument_context}
 
 {anchor_block}{quant_block}For EACH of the six horizons (5m, 15m, 30m, 1h, 2h, 4h) provide:
-- a direction (Up / Flat / Down),
-- an approximate expected price in the quote currency,
+- an approximate expected price in the quote currency — your single best point estimate for where price will be at the END of that horizon, anchored on the verified spot price above (above spot = you expect a rise, below spot = a fall),
+- a direction (Up / Flat / Down) CONSISTENT with that expected price vs spot — it is re-derived from your expected price after you answer, so make the price reflect the move you actually expect; never pair 'Up' with a price below spot,
 - an expected price range (low and high), sized from the intraday ATR / volatility and widening with the horizon (these are refined from realized volatility after you answer, so concentrate on a well-centered expected price),
 - a confidence from 0-100 — be honest: reserve high confidence for genuinely strong setups; a near-coin-flip is ~50.
 

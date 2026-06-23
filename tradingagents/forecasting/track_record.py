@@ -115,6 +115,31 @@ def deadband_for(
     return base * math.sqrt(minutes / ref_minutes)
 
 
+def reconcile_forecast_directions(forecast, spot_price: float, deadband_base: float | None = None):
+    """Force each horizon's direction to agree with its expected price vs spot.
+
+    The LLM fills ``direction`` and ``expected_price`` independently and sometimes
+    contradicts itself (e.g. 'Up' with an expected price *below* spot). This
+    re-derives each direction from ``expected_price`` vs spot using the SAME
+    horizon-scaled deadband the scorer applies to the realized price
+    (``deadband_for``), so the table is internally consistent and a forecast and
+    its outcome are judged on one yardstick. Meant to run BEFORE any quant fusion
+    (which deliberately owns direction from its measured edge). Mutates and
+    returns ``forecast``.
+    """
+    from tradingagents.agents.schemas import Direction
+    base = DEADBAND if deadband_base is None else deadband_base
+    for label, minutes in FORECAST_HORIZONS:
+        price = getattr(forecast, f"expected_price_{label}")
+        db = deadband_for(minutes, base=base)
+        setattr(
+            forecast,
+            f"direction_{label}",
+            Direction(realized_direction(spot_price, price, db)),
+        )
+    return forecast
+
+
 def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """95% Wilson score interval for a binomial proportion (pure, no scipy).
 

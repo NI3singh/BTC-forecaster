@@ -47,6 +47,7 @@ bedrock = [
 # Quantitative forecasting brain: per-horizon gradient-boosted direction models.
 # Optional so the core install stays lean: pip install "tradingagents[quant]".
 quant = [
+    "joblib>=1.3",        # model persistence; imported directly by the quant module
     "scikit-learn>=1.3",
 ]
 
@@ -86,6 +87,9 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]   # intentional re-exports
+# importorskip must run before the quant imports it guards, so those imports sit
+# below module-level code (E402) and form a second import group (I001).
+"tests/test_quant.py" = ["E402", "I001"]
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block

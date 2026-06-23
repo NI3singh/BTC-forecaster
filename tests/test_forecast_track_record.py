@@ -62,6 +62,24 @@ class TestRealizedDirection:
 
 
 @pytest.mark.unit
+class TestReconcileForecastDirections:
+    def test_direction_derived_from_price_with_scaled_deadband(self):
+        from tradingagents.forecasting.track_record import reconcile_forecast_directions
+        spot = 64000.0
+        # The 5m Flat band is 0.1% (+/-$64); the 4h band widens to ~0.69% (+/-$443).
+        # So the SAME -0.30% move is Down at 5m but inside the wider 4h band -> Flat.
+        f = make_forecast(
+            expected_price_5m=63808.0,   # -0.30% -> Down at the tight 5m band
+            expected_price_4h=63808.0,   # -0.30% -> Flat inside the wide 4h band
+            expected_price_1h=64500.0,   # +0.78% -> Up
+        )
+        reconcile_forecast_directions(f, spot)
+        assert f.direction_5m == Direction.DOWN
+        assert f.direction_4h == Direction.FLAT
+        assert f.direction_1h == Direction.UP
+
+
+@pytest.mark.unit
 class TestForecastTrackRecord:
     def test_log_is_idempotent(self, tmp_path):
         tr = ForecastTrackRecord(tmp_path / "tr.jsonl")
