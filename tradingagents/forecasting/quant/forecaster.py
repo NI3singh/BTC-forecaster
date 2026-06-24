@@ -139,6 +139,18 @@ class QuantForecaster:
         df = load_5m(self.asset, self.total)
         return {label: evaluate_meta_horizon(df, hb, **kw) for label, hb in self.horizons}
 
+    def evaluate_intervals(self, n_splits: int = 5, target: float = 0.8) -> dict[str, dict]:
+        """Walk-forward prediction-interval calibration + sharpness, per horizon.
+
+        The honest kill-switch for the volatility brain: does a conditional
+        vol/quantile interval beat the live constant-σ band on the Winkler score
+        at equal (conformal) coverage? Offline only.
+        """
+        from tradingagents.forecasting.quant.intervals import evaluate_intervals
+        df = load_5m(self.asset, self.total)
+        return {label: evaluate_intervals(df, hb, n_splits=n_splits, target=target)
+                for label, hb in self.horizons}
+
 
 def render_quant_block(asset: str, probs: dict[str, dict]) -> str:
     """Format per-horizon quant priors for injection into the PM prompt."""

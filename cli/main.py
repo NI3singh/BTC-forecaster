@@ -1450,5 +1450,27 @@ def quant_meta_eval(
     console.print(Markdown(meta_eval_markdown(asset, results)))
 
 
+@app.command("vol-eval")
+def vol_eval(
+    asset: str = typer.Option("BTC-USD", help="Ticker to evaluate."),
+    bars: int = typer.Option(50000, help="Number of 5m bars to train/evaluate on."),
+    target: float = typer.Option(0.8, help="Target interval coverage (0.8 = 80% range)."),
+):
+    """Prediction-interval calibration + sharpness of the volatility brain, per horizon.
+
+    Walk-forward, each method (constant-σ baseline / HAR-RV / quantile-GBM) is
+    rolling-conformal-calibrated to the target coverage and scored on the Winkler
+    interval score — the honest answer to "can a conditional vol model give sharper
+    80% ranges than the constant-σ band?". Offline; needs [quant].
+    """
+    from tradingagents.forecasting.quant import QuantForecaster
+    from tradingagents.forecasting.quant.intervals import intervals_eval_markdown
+    console.print(
+        f"[dim]Walk-forward interval eval over {bars} 5m bars (a minute or two)...[/dim]"
+    )
+    results = QuantForecaster(asset, total=bars).evaluate_intervals(target=target)
+    console.print(Markdown(intervals_eval_markdown(asset, results)))
+
+
 if __name__ == "__main__":
     app()
