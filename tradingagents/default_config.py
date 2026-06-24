@@ -27,6 +27,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_QUANT_META_SL":        "quant_meta_sl",
     "TRADINGAGENTS_QUANT_META_SIGMA_WINDOW": "quant_meta_sigma_window",
     "TRADINGAGENTS_QUANT_META_ABSTAIN":   "quant_meta_abstain",
+    "TRADINGAGENTS_QUANT_INTERVALS":      "quant_intervals",
+    "TRADINGAGENTS_QUANT_INTERVALS_TARGET": "quant_intervals_target",
     "TRADINGAGENTS_KRONOS_ENABLED":       "kronos_enabled",
     "TRADINGAGENTS_KRONOS_FUSION_WEIGHT": "kronos_fusion_weight",
     "TRADINGAGENTS_KRONOS_SAMPLES":       "kronos_samples",
@@ -156,6 +158,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "quant_meta_sl": 2.0,
     "quant_meta_sigma_window": 48,
     "quant_meta_abstain": 0.55,
+    # Volatility brain (lever #3, opt-in): replace the constant-σ 80% range with a
+    # HAR-RV + conformal conditional interval (measured sharper + better-calibrated
+    # than the k=1.5 band via `vol-eval`). quant_intervals_target = coverage to hit.
+    "quant_intervals": False,
+    "quant_intervals_target": 0.8,
     # Kronos: a zero-shot generative foundation model (sampled OHLCV price paths)
     # used as a SECOND directional prior, fused like the quant brain. Opt-in and
     # heavy (needs the [kronos] extra: torch etc.; downloads ~100MB on first use).

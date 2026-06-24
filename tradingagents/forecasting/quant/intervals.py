@@ -183,6 +183,61 @@ def evaluate_intervals(df: pd.DataFrame, horizon_bars: int, n_splits: int = 5,
     return result
 
 
+def predict_intervals(df: pd.DataFrame, horizons: list[tuple[str, int]],
+                      target: float = 0.8, conformal_window: int = 750,
+                      min_cal: int = 250) -> dict[str, tuple[float, float]]:
+    """Live HAR-RV + conformal interval for the LAST bar, per horizon.
+
+    Returns ``{label: (lo_frac, hi_frac)}`` — fractional offsets around the expected
+    price, so ``range = expected*(1 + lo_frac) .. expected*(1 + hi_frac)``. Fits HAR
+    on the available history, predicts the current bar's conditional σ, and scales it
+    by a conformal constant from recent realized residuals so coverage tracks
+    ``target``. Returns ``{}`` on any shortfall (caller keeps the constant-σ band).
+    """
+    feats = make_features(df)
+    har_cols = [c for c in _HAR_FEATURES if c in feats.columns]
+    if not har_cols:
+        return {}
+    Xa = feats[har_cols].to_numpy()
+    feat_ok = ~np.isnan(Xa).any(axis=1)
+    if not feat_ok[-1]:
+        return {}
+    logret = np.log(df["close"] / df["close"].shift(1))
+    sq = (logret ** 2).to_numpy()
+    close = df["close"].to_numpy()
+    out: dict[str, tuple[float, float]] = {}
+    for label, hb in horizons:
+        fvol = np.sqrt(pd.Series(sq).rolling(hb).mean().shift(-hb).to_numpy())
+        r_h = np.log(np.roll(close, -hb) / close)
+        r_h[-hb:] = np.nan                         # roll wraps; the last hb have no future
+        fit = feat_ok & ~np.isnan(fvol)
+        res = feat_ok & ~np.isnan(r_h)
+        if fit.sum() < min_cal or res.sum() < min_cal:
+            continue
+        A = np.column_stack([np.ones(int(fit.sum())), Xa[fit]])
+        coef, *_ = np.linalg.lstsq(A, fvol[fit], rcond=None)
+        sqrt_h = np.sqrt(hb)
+        idx = np.where(res)[0][-conformal_window:]
+        sig_r = np.clip(np.column_stack([np.ones(len(idx)), Xa[idx]]) @ coef, 1e-6, None)
+        c = float(np.quantile(np.abs(r_h[idx]) / (_Z80 * sig_r * sqrt_h), target))
+        sig_last = max(float(np.concatenate([[1.0], Xa[-1]]) @ coef), 1e-6)
+        hw = c * _Z80 * sig_last * sqrt_h          # conformal-calibrated half-width (log-return)
+        out[label] = (float(np.expm1(-hw)), float(np.expm1(hw)))
+    return out
+
+
+def forecast_interval_offsets(asset: str, cfg: dict) -> dict[str, tuple[float, float]]:
+    """Best-effort live per-horizon HAR+conformal interval offsets for ``asset``."""
+    try:
+        from tradingagents.agents.schemas import FORECAST_HORIZONS
+        from tradingagents.forecasting.quant.binance_data import load_5m
+        df = load_5m(asset, int(cfg.get("quant_total_bars", 50000)))
+        horizons = [(label, m // 5) for label, m in FORECAST_HORIZONS]
+        return predict_intervals(df, horizons, target=float(cfg.get("quant_intervals_target", 0.8)))
+    except Exception:
+        return {}
+
+
 def intervals_eval_markdown(asset: str, results: dict[str, dict]) -> str:
     """Render the per-horizon, per-method interval comparison as markdown."""
     from tradingagents.agents.schemas import FORECAST_HORIZONS

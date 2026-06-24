@@ -79,3 +79,32 @@ class TestIntervalEval:
         base_w = res["baseline"]["cal"]["winkler"]
         for name in ("har", "quantile"):
             assert res[name]["cal"]["winkler"] > 0.6 * base_w
+
+
+@pytest.mark.unit
+class TestLiveIntervals:
+    def test_predict_intervals_widen_with_horizon(self):
+        from tradingagents.agents.schemas import FORECAST_HORIZONS
+        from tradingagents.forecasting.quant.intervals import predict_intervals
+        horizons = [(label, m // 5) for label, m in FORECAST_HORIZONS]
+        off = predict_intervals(_gauss(3000, seed=4), horizons, target=0.8)
+        assert len(off) == len(FORECAST_HORIZONS)
+        for lo, hi in off.values():
+            assert lo < 0 < hi                       # bracket the expected price
+        width = {k: hi - lo for k, (lo, hi) in off.items()}
+        assert width["4h"] > width["5m"]             # widen with horizon
+
+    def test_apply_interval_ranges_overrides_only_given_horizons(self):
+        from types import SimpleNamespace
+
+        from tradingagents.agents.schemas import FORECAST_HORIZONS
+        from tradingagents.forecasting.ranges import apply_interval_ranges
+        fc = SimpleNamespace()
+        for label, _ in FORECAST_HORIZONS:
+            setattr(fc, f"expected_price_{label}", 100.0)
+            setattr(fc, f"range_low_{label}", 99.0)
+            setattr(fc, f"range_high_{label}", 101.0)
+        apply_interval_ranges(fc, {"1h": (-0.02, 0.03)})
+        assert fc.range_low_1h == pytest.approx(98.0)    # 100*(1-0.02)
+        assert fc.range_high_1h == pytest.approx(103.0)  # 100*(1+0.03)
+        assert fc.range_low_5m == 99.0 and fc.range_high_5m == 101.0  # untouched

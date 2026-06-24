@@ -61,6 +61,29 @@ def apply_vol_scaled_ranges(
     return forecast
 
 
+def apply_interval_ranges(
+    forecast: Forecast, offsets: dict[str, tuple[float, float]]
+) -> Forecast:
+    """Override ``range_low``/``range_high`` from conditional interval offsets.
+
+    ``offsets`` maps a horizon to ``(lo_frac, hi_frac)`` fractional bounds around the
+    expected price (from the volatility brain's HAR+conformal interval). Horizons
+    absent from ``offsets`` keep whatever ``apply_vol_scaled_ranges`` set (so this is
+    a best-effort sharpening layer on top of the constant-σ band). In place.
+    """
+    for label, _ in FORECAST_HORIZONS:
+        off = offsets.get(label)
+        if not off:
+            continue
+        lo_frac, hi_frac = off
+        expected = getattr(forecast, f"expected_price_{label}")
+        if expected is None:
+            continue
+        setattr(forecast, f"range_low_{label}", expected * (1.0 + lo_frac))
+        setattr(forecast, f"range_high_{label}", expected * (1.0 + hi_frac))
+    return forecast
+
+
 def render_anchor_block(asset: str, anchor: dict) -> str:
     """Compact 'source of truth' block for the PM prompt: the real spot price and
     the realized volatility scale (plus recent swing levels), so the model anchors

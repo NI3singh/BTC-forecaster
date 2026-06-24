@@ -127,6 +127,20 @@ def create_portfolio_manager(llm):
         def _post_process(forecast):
             if range_pp is not None:
                 forecast = range_pp(forecast)
+            # Volatility brain (opt-in via quant_intervals): sharpen the 80% ranges
+            # with a HAR + conformal conditional interval, measured to beat the
+            # constant-σ band. Best-effort override on top of the band.
+            if cfg.get("quant_intervals") and trade_date:
+                try:
+                    from tradingagents.forecasting.quant.intervals import (
+                        forecast_interval_offsets,
+                    )
+                    from tradingagents.forecasting.ranges import apply_interval_ranges
+                    offsets = forecast_interval_offsets(company_name, cfg)
+                    if offsets:
+                        forecast = apply_interval_ranges(forecast, offsets)
+                except Exception:
+                    pass
             # Make each direction agree with its expected price vs spot, using the
             # same horizon-scaled deadband the scorer applies, so the table is
             # never self-contradictory ("Up" with a price below spot). Runs BEFORE
@@ -154,6 +168,7 @@ def create_portfolio_manager(llm):
 
         post_process = _post_process if (
             anchor or range_pp is not None or quant_probs or kronos_probs
+            or cfg.get("quant_intervals")
         ) else None
 
         prompt = f"""As the Portfolio Manager on an intraday price-forecasting desk, synthesize the risk analysts' debate and the desk's analysis into the FINAL price forecast for {company_name}, covering all six horizons: 5m, 15m, 30m, 1h, 2h and 4h.
