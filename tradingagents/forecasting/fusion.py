@@ -82,15 +82,15 @@ def fuse_forecast(forecast, quant_probs: dict[str, dict],
     return forecast, sidebyside
 
 
-def render_fusion_block(sidebyside: list[dict]) -> str:
-    """Side-by-side Quant / Desk / Fused table with disagreement flags."""
+def render_fusion_block(sidebyside: list[dict], source: str = "Quant") -> str:
+    """Side-by-side <source> / Desk / Fused table with disagreement flags."""
     if not sidebyside:
         return ""
     lines = [
-        "**Quant vs Desk vs Fused (⚠ = the model and the desk disagree → "
+        f"**{source} vs Desk vs Fused (⚠ = the model and the desk disagree → "
         "conviction trimmed):**",
         "",
-        "| Horizon | Quant model | Desk (agents) | Fused (final) |",
+        f"| Horizon | {source} model | Desk (agents) | Fused (final) |",
         "| --- | --- | --- | --- |",
     ]
     for r in sidebyside:

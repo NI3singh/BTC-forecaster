@@ -20,6 +20,12 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_QUANT_FUSION_WEIGHT":  "quant_fusion_weight",
     "TRADINGAGENTS_QUANT_TOTAL_BARS":     "quant_total_bars",
     "TRADINGAGENTS_QUANT_RETRAIN_HOURS":  "quant_retrain_hours",
+    "TRADINGAGENTS_KRONOS_ENABLED":       "kronos_enabled",
+    "TRADINGAGENTS_KRONOS_FUSION_WEIGHT": "kronos_fusion_weight",
+    "TRADINGAGENTS_KRONOS_SAMPLES":       "kronos_samples",
+    "TRADINGAGENTS_KRONOS_LOOKBACK":      "kronos_lookback",
+    "TRADINGAGENTS_KRONOS_MODEL":         "kronos_model",
+    "TRADINGAGENTS_KRONOS_DEVICE":        "kronos_device",
     "TRADINGAGENTS_FORECAST_DEADBAND_BASE": "forecast_deadband_base",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
@@ -126,6 +132,21 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # only component with a measured directional edge); 1.0 = quant-only, 0.0 =
     # agents-only. On a quant/desk disagreement the fused conviction is trimmed.
     "quant_fusion_weight": 0.6,
+    # Kronos: a zero-shot generative foundation model (sampled OHLCV price paths)
+    # used as a SECOND directional prior, fused like the quant brain. Opt-in and
+    # heavy (needs the [kronos] extra: torch etc.; downloads ~100MB on first use).
+    # kronos_samples = price paths sampled per forecast (more = smoother P(up),
+    # slower); kronos_lookback = recent 5m bars fed in (<= the model's 512 context).
+    "kronos_enabled": False,
+    "kronos_model": "NeoQuasar/Kronos-small",
+    "kronos_tokenizer": "NeoQuasar/Kronos-Tokenizer-base",
+    "kronos_lookback": 512,
+    "kronos_pred_len": 48,
+    "kronos_samples": 30,
+    "kronos_T": 1.0,
+    "kronos_top_p": 0.9,
+    "kronos_device": "cpu",
+    "kronos_fusion_weight": 0.6,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

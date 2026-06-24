@@ -1403,5 +1403,28 @@ def quant_eval(
     console.print(Markdown(quant_eval_markdown(asset, results)))
 
 
+@app.command("kronos-eval")
+def kronos_eval(
+    asset: str = typer.Option("BTC-USD", help="Ticker to evaluate Kronos (zero-shot) on."),
+    points: int = typer.Option(40, help="Number of historical anchors to score (keep small on CPU)."),
+    stride: int = typer.Option(12, help="Bars between anchors (12 = hourly on 5m bars)."),
+):
+    """Walk-forward zero-shot evaluation of Kronos per horizon vs the naive baselines.
+
+    The honest kill-switch: Kronos earns "enabled" only where it beats the baselines.
+    VERY heavy on CPU (one autoregressive model run per anchor; ~minutes EACH at the
+    default sample count). For a CPU sanity check use a small --points and lower
+    TRADINGAGENTS_KRONOS_SAMPLES; a real measurement wants a GPU. Needs [kronos].
+    """
+    from tradingagents.forecasting.kronos import KronosForecaster, kronos_eval_markdown
+    console.print(
+        f"[dim]Kronos zero-shot walk-forward: {points} anchors (stride {stride}) — one "
+        "model run each. Minutes per anchor on CPU; reduce --points / KRONOS_SAMPLES or "
+        "use a GPU if this is too slow...[/dim]"
+    )
+    results = KronosForecaster(asset).evaluate(n_points=points, stride=stride)
+    console.print(Markdown(kronos_eval_markdown(asset, results)))
+
+
 if __name__ == "__main__":
     app()

@@ -101,9 +101,28 @@ def create_portfolio_manager(llm):
                 quant_probs = {}
                 quant_block = ""
 
+        # Kronos brain (opt-in via kronos_enabled): a zero-shot generative model's
+        # per-horizon P(up), fused as a SECOND prior the same way as the quant brain.
+        kronos_block = ""
+        kronos_probs: dict = {}
+        if cfg.get("kronos_enabled") and trade_date:
+            try:
+                from tradingagents.forecasting.kronos import (
+                    KronosForecaster,
+                    render_kronos_block,
+                )
+                kronos_probs = KronosForecaster(company_name).predict()
+                kronos_block = render_kronos_block(company_name, kronos_probs)
+                if kronos_block:
+                    kronos_block += "\n\n"
+            except Exception:
+                kronos_probs = {}
+                kronos_block = ""
+
         # Post-process the typed forecast: vol-scaled ranges, then fuse the quant
-        # prior into direction/confidence (capturing a side-by-side for display).
+        # and kronos priors into direction/confidence (capturing side-by-sides).
         fusion_sidebyside: list = []
+        kronos_sidebyside: list = []
 
         def _post_process(forecast):
             if range_pp is not None:
@@ -125,15 +144,23 @@ def create_portfolio_manager(llm):
                     forecast, quant_probs, weight=float(cfg.get("quant_fusion_weight", 0.6))
                 )
                 fusion_sidebyside[:] = sbs
+            if kronos_probs:
+                from tradingagents.forecasting.fusion import fuse_forecast
+                forecast, ksbs = fuse_forecast(
+                    forecast, kronos_probs, weight=float(cfg.get("kronos_fusion_weight", 0.6))
+                )
+                kronos_sidebyside[:] = ksbs
             return forecast
 
-        post_process = _post_process if (anchor or range_pp is not None or quant_probs) else None
+        post_process = _post_process if (
+            anchor or range_pp is not None or quant_probs or kronos_probs
+        ) else None
 
         prompt = f"""As the Portfolio Manager on an intraday price-forecasting desk, synthesize the risk analysts' debate and the desk's analysis into the FINAL price forecast for {company_name}, covering all six horizons: 5m, 15m, 30m, 1h, 2h and 4h.
 
 {instrument_context}
 
-{anchor_block}{quant_block}For EACH of the six horizons (5m, 15m, 30m, 1h, 2h, 4h) provide:
+{anchor_block}{quant_block}{kronos_block}For EACH of the six horizons (5m, 15m, 30m, 1h, 2h, 4h) provide:
 - an approximate expected price in the quote currency — your single best point estimate for where price will be at the END of that horizon, anchored on the verified spot price above (above spot = you expect a rise, below spot = a fall),
 - a direction (Up / Flat / Down) CONSISTENT with that expected price vs spot — it is re-derived from your expected price after you answer, so make the price reflect the move you actually expect; never pair 'Up' with a price below spot,
 - an expected price range (low and high), sized from the intraday ATR / volatility and widening with the horizon (these are refined from realized volatility after you answer, so concentrate on a well-centered expected price),
@@ -169,6 +196,12 @@ Ground every number in the analysts' evidence; do not fabricate precision.{get_l
             from tradingagents.forecasting.fusion import render_fusion_block
             final_trade_decision = (
                 final_trade_decision + "\n\n" + render_fusion_block(fusion_sidebyside)
+            )
+        if kronos_sidebyside:
+            from tradingagents.forecasting.fusion import render_fusion_block
+            final_trade_decision = (
+                final_trade_decision + "\n\n"
+                + render_fusion_block(kronos_sidebyside, source="Kronos")
             )
 
         # Pin the forecast to its real baseline (timestamp + spot price at forecast
