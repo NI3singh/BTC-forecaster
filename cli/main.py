@@ -1426,5 +1426,29 @@ def kronos_eval(
     console.print(Markdown(kronos_eval_markdown(asset, results)))
 
 
+@app.command("quant-meta-eval")
+def quant_meta_eval(
+    asset: str = typer.Option("BTC-USD", help="Ticker to evaluate."),
+    bars: int = typer.Option(50000, help="Number of 5m bars to train/evaluate on."),
+    fee: float = typer.Option(
+        0.001, help="Round-trip fee as a fraction (0.001 = 0.1%); pass 2x to stress."
+    ),
+):
+    """Selective-forecasting eval: does abstaining on low-conviction bars pay, net of fees?
+
+    Walk-forward triple-barrier outcomes per horizon (5m..4h), with a calibration +
+    abstain-threshold sweep reporting coverage, committed precision, and net-fee PnL
+    — the honest kill-switch for meta-labeling (lever #2). Offline; needs [quant].
+    """
+    from tradingagents.forecasting.quant import QuantForecaster
+    from tradingagents.forecasting.quant.meta import meta_eval_markdown
+    console.print(
+        f"[dim]Walk-forward triple-barrier meta-eval over {bars} 5m bars "
+        "(a minute or two)...[/dim]"
+    )
+    results = QuantForecaster(asset, total=bars).evaluate_meta(fee=fee)
+    console.print(Markdown(meta_eval_markdown(asset, results)))
+
+
 if __name__ == "__main__":
     app()

@@ -54,10 +54,16 @@ def baseline_persistence(df: pd.DataFrame, idx: pd.Index) -> np.ndarray:
     return last_move.reindex(idx).fillna(1.0).to_numpy()
 
 
-def generate_oos_predictions(X: pd.DataFrame, y: pd.Series, n_splits: int = 5) -> pd.DataFrame:
+def generate_oos_predictions(X: pd.DataFrame, y: pd.Series, n_splits: int = 5,
+                             embargo: int = 0) -> pd.DataFrame:
     """Expanding-window walk-forward predictions covering each OOS row once.
 
     Returns a frame indexed by timestamp with columns [prob_up, y_true].
+
+    ``embargo`` purges the last ``embargo`` training rows before each test fold:
+    a label looks ``horizon_bars`` ahead, so without a gap the last few training
+    labels peek into the test region. Pass ``embargo=horizon_bars`` to close that
+    leak. Test slices don't move, so per-fold ``n_test`` is unchanged.
     """
     n = len(X)
     fold = n // (n_splits + 1)
@@ -65,9 +71,10 @@ def generate_oos_predictions(X: pd.DataFrame, y: pd.Series, n_splits: int = 5) -
     for k in range(1, n_splits + 1):
         train_end = fold * k
         test_end = fold * (k + 1) if k < n_splits else n
-        Xtr, ytr = X.iloc[:train_end], y.iloc[:train_end]
+        tr_hi = max(0, train_end - embargo)
+        Xtr, ytr = X.iloc[:tr_hi], y.iloc[:tr_hi]
         Xte, yte = X.iloc[train_end:test_end], y.iloc[train_end:test_end]
-        if len(Xte) == 0:
+        if len(Xte) == 0 or len(Xtr) == 0:
             continue
         model = make_model()
         cols = _usable_columns(Xtr)
@@ -78,10 +85,10 @@ def generate_oos_predictions(X: pd.DataFrame, y: pd.Series, n_splits: int = 5) -
 
 
 def evaluate_horizon(X: pd.DataFrame, y: pd.Series, df: pd.DataFrame,
-                     n_splits: int = 5) -> dict:
+                     n_splits: int = 5, embargo: int = 0) -> dict:
     """Walk-forward OOS accuracy + AUC vs baselines for one horizon."""
     fold = len(X) // (n_splits + 1)
-    preds = generate_oos_predictions(X, y, n_splits=n_splits)
+    preds = generate_oos_predictions(X, y, n_splits=n_splits, embargo=embargo)
     if preds.empty:
         return {"n_test": 0}
     y_true = preds["y_true"].to_numpy()

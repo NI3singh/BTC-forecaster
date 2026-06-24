@@ -28,10 +28,10 @@ from tradingagents.forecasting.quant.model import evaluate_horizon, train_full
 _FLAT_BAND = 0.015
 
 
-def _direction(prob_up: float) -> str:
-    if prob_up > 0.5 + _FLAT_BAND:
+def _direction(prob_up: float, band: float = _FLAT_BAND) -> str:
+    if prob_up > 0.5 + band:
         return "Up"
-    if prob_up < 0.5 - _FLAT_BAND:
+    if prob_up < 0.5 - band:
         return "Down"
     return "Flat"
 
@@ -78,6 +78,14 @@ class QuantForecaster:
 
         Returns ``{label: {prob_up, direction, confidence}}``; ``{}`` on failure.
         """
+        from tradingagents.dataflows.config import get_config
+        cfg = get_config()
+        # Meta-labeling abstain: when on, commit only when P(up) clears a wider band
+        # (|P(up)-0.5| >= margin), else report Flat. prob_up/confidence are preserved
+        # so fusion still sees the raw lean. The band is the live half of the
+        # offline quant-meta-eval; tune quant_meta_abstain from that sweep.
+        band = (float(cfg.get("quant_meta_abstain", 0.55)) - 0.5
+                if cfg.get("quant_meta") else _FLAT_BAND)
         df = load_5m(self.asset, self.total, refresh=refresh)
         feats = make_features(df)
         core = [c for c in feats.columns if c not in OPTIONAL_FEATURES]
@@ -96,7 +104,7 @@ class QuantForecaster:
             prob_up = float(model.predict_proba(row)[:, 1][0])
             out[label] = {
                 "prob_up": prob_up,
-                "direction": _direction(prob_up),
+                "direction": _direction(prob_up, band=band),
                 "confidence": round(100 * max(prob_up, 1 - prob_up)),
             }
         return out
@@ -105,9 +113,31 @@ class QuantForecaster:
         """Walk-forward OOS accuracy vs baselines, per horizon (offline, honest)."""
         df = load_5m(self.asset, self.total)
         return {
-            label: evaluate_horizon(*build_dataset(df, horizon_bars), df, n_splits=n_splits)
+            label: evaluate_horizon(*build_dataset(df, horizon_bars), df,
+                                    n_splits=n_splits, embargo=horizon_bars)
             for label, horizon_bars in self.horizons
         }
+
+    def evaluate_meta(self, n_splits: int = 5, fee: float | None = None) -> dict[str, dict]:
+        """Selective-forecasting walk-forward (triple-barrier + abstain), per horizon.
+
+        The honest kill-switch for meta-labeling: does committing only on confident
+        bars beat trading every bar, net of fees? Offline only.
+        """
+        from tradingagents.dataflows.config import get_config
+        from tradingagents.forecasting.quant.meta import evaluate_meta_horizon
+        cfg = get_config()
+        base = float(cfg.get("forecast_deadband_base", 0.001))
+        kw = {
+            "n_splits": n_splits,
+            "fee": base if fee is None else fee,
+            "pt": float(cfg.get("quant_meta_pt", 2.0)),
+            "sl": float(cfg.get("quant_meta_sl", 2.0)),
+            "sigma_window": int(cfg.get("quant_meta_sigma_window", 48)),
+            "base_deadband": base,
+        }
+        df = load_5m(self.asset, self.total)
+        return {label: evaluate_meta_horizon(df, hb, **kw) for label, hb in self.horizons}
 
 
 def render_quant_block(asset: str, probs: dict[str, dict]) -> str:

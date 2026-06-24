@@ -22,6 +22,11 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_QUANT_RETRAIN_HOURS":  "quant_retrain_hours",
     "TRADINGAGENTS_QUANT_DERIVATIVES":    "quant_derivatives",
     "TRADINGAGENTS_QUANT_OI_DAYS":        "quant_oi_days",
+    "TRADINGAGENTS_QUANT_META":           "quant_meta",
+    "TRADINGAGENTS_QUANT_META_PT":        "quant_meta_pt",
+    "TRADINGAGENTS_QUANT_META_SL":        "quant_meta_sl",
+    "TRADINGAGENTS_QUANT_META_SIGMA_WINDOW": "quant_meta_sigma_window",
+    "TRADINGAGENTS_QUANT_META_ABSTAIN":   "quant_meta_abstain",
     "TRADINGAGENTS_KRONOS_ENABLED":       "kronos_enabled",
     "TRADINGAGENTS_KRONOS_FUSION_WEIGHT": "kronos_fusion_weight",
     "TRADINGAGENTS_KRONOS_SAMPLES":       "kronos_samples",
@@ -141,6 +146,16 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # funding has full history and covers the whole training window).
     "quant_derivatives": False,
     "quant_oi_days": 30,
+    # Meta-labeling (lever #2, opt-in): grade direction with the triple-barrier
+    # method and commit only on high-conviction bars (abstain -> Flat otherwise).
+    # quant_meta turns the LIVE abstain gate on (widen the Flat band to
+    # |P(up)-0.5| >= quant_meta_abstain-0.5). pt/sl/sigma_window shape the
+    # triple-barrier the OFFLINE `quant-meta-eval` scores. Measure before trusting.
+    "quant_meta": False,
+    "quant_meta_pt": 2.0,
+    "quant_meta_sl": 2.0,
+    "quant_meta_sigma_window": 48,
+    "quant_meta_abstain": 0.55,
     # Kronos: a zero-shot generative foundation model (sampled OHLCV price paths)
     # used as a SECOND directional prior, fused like the quant brain. Opt-in and
     # heavy (needs the [kronos] extra: torch etc.; downloads ~100MB on first use).

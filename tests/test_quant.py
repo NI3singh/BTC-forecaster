@@ -15,7 +15,7 @@ from tradingagents.forecasting.quant.forecaster import (
     quant_eval_markdown,
     render_quant_block,
 )
-from tradingagents.forecasting.quant.model import evaluate_horizon
+from tradingagents.forecasting.quant.model import evaluate_horizon, generate_oos_predictions
 
 
 def _synth(n=2500, seed=0):
@@ -138,6 +138,44 @@ class TestEvaluateHorizon:
         assert 0.0 <= res["model_acc"] <= 1.0
         assert "edge" in res and "best_baseline" in res
         assert res["edge"] == pytest.approx(res["model_acc"] - res["best_baseline_acc"])
+
+
+@pytest.mark.unit
+class TestEmbargo:
+    def test_oos_coverage_unchanged_with_embargo(self):
+        X, y = build_dataset(_synth(2400, seed=3), horizon_bars=12)
+        a = generate_oos_predictions(X, y, n_splits=5, embargo=0)
+        b = generate_oos_predictions(X, y, n_splits=5, embargo=12)
+        assert len(a) == len(b)              # test slices don't move, only train tails shrink
+        assert (a.index == b.index).all()
+
+    def test_embargo_purges_train_tail(self, monkeypatch):
+        import tradingagents.forecasting.quant.model as m
+        seen: list[int] = []
+        orig = m.make_model
+
+        def spy():
+            mdl = orig()
+            real_fit = mdl.fit
+
+            def fit(X, y, *a, **k):
+                seen.append(len(X))           # rows fed to each per-fold fit
+                return real_fit(X, y, *a, **k)
+
+            mdl.fit = fit
+            return mdl
+
+        monkeypatch.setattr(m, "make_model", spy)
+        X, y = build_dataset(_synth(2400, seed=3), horizon_bars=12)
+        seen.clear()
+        m.generate_oos_predictions(X, y, n_splits=5, embargo=0)
+        base = list(seen)
+        seen.clear()
+        m.generate_oos_predictions(X, y, n_splits=5, embargo=12)
+        emb = list(seen)
+        assert len(base) == len(emb)          # same folds run
+        assert all(e <= b for e, b in zip(emb, base, strict=True))
+        assert any(e < b for e, b in zip(emb, base, strict=True))   # tail actually purged
 
 
 @pytest.mark.unit
