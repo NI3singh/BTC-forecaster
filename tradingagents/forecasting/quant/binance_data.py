@@ -78,8 +78,8 @@ def fetch_klines(symbol: str, interval: str, total: int) -> pd.DataFrame:
     return _rows_to_df(all_rows)
 
 
-def load_5m(asset: str, total: int = 50000, interval: str = "5m",
-            refresh: bool = False) -> pd.DataFrame:
+def _load_klines(asset: str, total: int = 50000, interval: str = "5m",
+                 refresh: bool = False) -> pd.DataFrame:
     """Load closed candles, keeping the on-disk cache reasonably current.
 
     Full refetch when the cache is missing/too small or ``refresh``; otherwise the
@@ -108,4 +108,20 @@ def load_5m(asset: str, total: int = 50000, interval: str = "5m",
 
     df = fetch_klines(symbol, interval, total)
     df.to_csv(cache)
+    return df
+
+
+def load_5m(asset: str, total: int = 50000, interval: str = "5m",
+            refresh: bool = False) -> pd.DataFrame:
+    """Closed 5m candles, plus Binance Futures derivatives/order-flow columns when
+    ``quant_derivatives`` is enabled (funding, OI, long/short — best-effort, never
+    raises). Both ``QuantForecaster.predict`` and ``.evaluate`` route through here."""
+    df = _load_klines(asset, total, interval, refresh)
+    from tradingagents.dataflows.config import get_config
+    if interval == "5m" and get_config().get("quant_derivatives"):
+        try:
+            from tradingagents.forecasting.quant.binance_derivatives import attach_derivatives
+            df = attach_derivatives(df, to_binance_symbol(asset))
+        except Exception:
+            pass
     return df

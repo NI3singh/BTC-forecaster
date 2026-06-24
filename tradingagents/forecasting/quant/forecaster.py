@@ -17,7 +17,11 @@ import joblib
 
 from tradingagents.agents.schemas import FORECAST_HORIZONS
 from tradingagents.forecasting.quant.binance_data import load_5m, to_binance_symbol
-from tradingagents.forecasting.quant.features import build_dataset, make_features
+from tradingagents.forecasting.quant.features import (
+    OPTIONAL_FEATURES,
+    build_dataset,
+    make_features,
+)
 from tradingagents.forecasting.quant.model import evaluate_horizon, train_full
 
 # P(up) inside 0.5 +/- this band is reported as "Flat" (no directional lean).
@@ -75,13 +79,21 @@ class QuantForecaster:
         Returns ``{label: {prob_up, direction, confidence}}``; ``{}`` on failure.
         """
         df = load_5m(self.asset, self.total, refresh=refresh)
-        feats = make_features(df).dropna()
+        feats = make_features(df)
+        core = [c for c in feats.columns if c not in OPTIONAL_FEATURES]
+        feats = feats.dropna(subset=core)  # keep NaN derivative cols (the model handles them)
         if feats.empty:
             return {}
         latest = feats.iloc[[-1]]
         out: dict[str, dict] = {}
         for label, horizon_bars in self.horizons:
-            prob_up = float(self._get_model(df, label, horizon_bars).predict_proba(latest)[:, 1][0])
+            model = self._get_model(df, label, horizon_bars)
+            row = latest
+            # Align to the columns the (possibly cached) model was trained on, so a
+            # flaky derivatives endpoint can't cause a feature-name mismatch.
+            if hasattr(model, "feature_names_in_"):
+                row = latest.reindex(columns=list(model.feature_names_in_))
+            prob_up = float(model.predict_proba(row)[:, 1][0])
             out[label] = {
                 "prob_up": prob_up,
                 "direction": _direction(prob_up),

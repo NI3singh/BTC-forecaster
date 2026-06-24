@@ -27,6 +27,17 @@ def make_model() -> HistGradientBoostingClassifier:
     )
 
 
+def _usable_columns(X: pd.DataFrame) -> list[str]:
+    """Columns HistGradientBoosting can bin: drop all-NaN or constant features.
+
+    Its binning step fails on a feature with <2 distinct non-NaN values — which an
+    optional derivative feature can be in an early walk-forward fold that predates
+    the ~30-day futures-data window. Dropping such columns per-fit keeps training
+    robust; a feature simply isn't used where it carries no information.
+    """
+    return [c for c in X.columns if X[c].nunique(dropna=True) > 1]
+
+
 # --- Baselines the model must beat (computed on the SAME out-of-sample rows) ---
 
 def baseline_always_up(n: int) -> np.ndarray:
@@ -59,8 +70,9 @@ def generate_oos_predictions(X: pd.DataFrame, y: pd.Series, n_splits: int = 5) -
         if len(Xte) == 0:
             continue
         model = make_model()
-        model.fit(Xtr, ytr)
-        prob = model.predict_proba(Xte)[:, 1]
+        cols = _usable_columns(Xtr)
+        model.fit(Xtr[cols], ytr)
+        prob = model.predict_proba(Xte[cols])[:, 1]
         frames.append(pd.DataFrame({"prob_up": prob, "y_true": yte.to_numpy()}, index=Xte.index))
     return pd.concat(frames) if frames else pd.DataFrame(columns=["prob_up", "y_true"])
 
@@ -102,5 +114,6 @@ def evaluate_horizon(X: pd.DataFrame, y: pd.Series, df: pd.DataFrame,
 def train_full(X: pd.DataFrame, y: pd.Series) -> HistGradientBoostingClassifier:
     """Fit one model on all available rows (for live prediction)."""
     model = make_model()
-    model.fit(X, y)
+    cols = _usable_columns(X)
+    model.fit(X[cols], y)
     return model

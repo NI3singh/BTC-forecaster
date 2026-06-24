@@ -20,6 +20,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_QUANT_FUSION_WEIGHT":  "quant_fusion_weight",
     "TRADINGAGENTS_QUANT_TOTAL_BARS":     "quant_total_bars",
     "TRADINGAGENTS_QUANT_RETRAIN_HOURS":  "quant_retrain_hours",
+    "TRADINGAGENTS_QUANT_DERIVATIVES":    "quant_derivatives",
+    "TRADINGAGENTS_QUANT_OI_DAYS":        "quant_oi_days",
     "TRADINGAGENTS_KRONOS_ENABLED":       "kronos_enabled",
     "TRADINGAGENTS_KRONOS_FUSION_WEIGHT": "kronos_fusion_weight",
     "TRADINGAGENTS_KRONOS_SAMPLES":       "kronos_samples",
@@ -132,6 +134,13 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # only component with a measured directional edge); 1.0 = quant-only, 0.0 =
     # agents-only. On a quant/desk disagreement the fused conviction is trimmed.
     "quant_fusion_weight": 0.6,
+    # Add Binance Futures derivatives/order-flow features (funding rate, open
+    # interest, long/short positioning, taker buy/sell) to the quant model — the
+    # inputs spot price can't see. Opt-in so the edge is measurable via quant-eval.
+    # quant_oi_days bounds the OI/long-short window (Binance retains ~30 days;
+    # funding has full history and covers the whole training window).
+    "quant_derivatives": False,
+    "quant_oi_days": 30,
     # Kronos: a zero-shot generative foundation model (sampled OHLCV price paths)
     # used as a SECOND directional prior, fused like the quant brain. Opt-in and
     # heavy (needs the [kronos] extra: torch etc.; downloads ~100MB on first use).
